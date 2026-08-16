@@ -49,6 +49,9 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /entries/{id}", http.HandlerFunc(s.handleEntryGet))
 	s.mux.Handle("PUT /entries/{id}", http.HandlerFunc(s.handleEntryPut))
 	s.mux.Handle("DELETE /entries/{id}", http.HandlerFunc(s.handleEntryDelete))
+	s.mux.Handle("GET /healthz", http.HandlerFunc(s.handleHealthz))
+	s.mux.Handle("GET /version", http.HandlerFunc(s.handleVersion))
+	s.mux.Handle("/", http.HandlerFunc(s.handleWebAssets))
 }
 
 func (s *Server) Handler() http.Handler {
@@ -74,7 +77,8 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("X-Request-Id", reqID)
-		w.Header().Set("Cache-Control", "no-store, private")
+		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'")
 		rw := &statusRecorder{ResponseWriter: w, status: 200}
 		ar := s.authenticate(rw, r.WithContext(ctx))
 		if ar != nil {
@@ -91,7 +95,6 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 			slog.String("user_id", userID),
 			slog.Int64("duration_ms", time.Since(start).Milliseconds()),
 			slog.String("request_id", reqID),
-			slog.String("remote_ip", ip),
 		)
 	})
 }

@@ -1,0 +1,25 @@
+meta {
+  name: Web assets — manifest
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/manifest.webmanifest
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.headers["content-type"]: contains "application/manifest+json"
+  res.body.name: eq Linkomat
+  res.body.short_name: eq Link
+}
+
+docs {
+  GET /manifest.webmanifest — the PWA manifest. Content-Type
+  registration via mime.AddExtensionType(".webmanifest",
+  "application/manifest+json") so the browser recognizes it as a
+  web manifest.
+}

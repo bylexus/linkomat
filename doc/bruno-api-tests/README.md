@@ -33,9 +33,9 @@ printf 'hunter2\nhunter2\n' | LINKOMAT_COOKIE_SECURE=false ./bin/linkomat-server
 1. Open the Bruno desktop app.
 2. **Collection → Open Collection…** (or `⌘O`).
 3. Select the `doc/bruno-api-tests/` directory.
-4. The collection appears as **linkomat-api** with two folders
-   (**auth**, **entries**) and the **Local** environment under the
-   environments dropdown.
+4. The collection appears as **linkomat-api** with three folders
+   (**auth**, **entries**, **meta**) and the **Local** environment
+   under the environments dropdown.
 
 ## Folders
 
@@ -77,6 +77,20 @@ captures `entryId` for the downstream tests.
 The cookie auth path itself is tested by `auth/refresh-cookie`. The
 PWA only sends cookies per §7.4, so the smoke check there happens in
 step 6+ where the web app exercises the endpoints.
+
+### `meta/` — covers §10 step 5
+
+Public meta endpoints, default security headers, and the embedded
+web assets. None of these require auth.
+
+| # | Request             | Path                  | Notes                                  |
+|---|---------------------|-----------------------|----------------------------------------|
+| 1 | healthz             | `GET /healthz`        | 200, status/version/server_time        |
+| 2 | version             | `GET /version`        | 200, name/version/server_time          |
+| 3 | security-headers    | `GET /healthz`        | CSP, HSTS, X-Content-Type-Options, ... |
+| 4 | web-root            | `GET /`               | 200, embedded index.html               |
+| 5 | web-manifest        | `GET /manifest.webmanifest` | 200, application/manifest+json |
+| 6 | web-spa-fallback    | `GET /no-such-spa-route` | 200, falls back to index.html       |
 
 ## Run order
 
@@ -162,6 +176,8 @@ it's not populated by a script.
 
 ## Scope
 
-Covers §10 step 3 (auth) and §10 step 4 (entries / per-user DB).
-`/healthz`, `/version`, embedded web assets, CORS and the full
-security-header set land in step 5.
+Covers §10 step 3 (auth), §10 step 4 (entries / per-user DB), and
+§10 step 5 (`/healthz`, `/version`, default security headers,
+embedded web assets). Steps 6+ (PWA + sync worker + mobile smoke
+check) and 11 (CLI) are tested end-to-end via the live web app and
+CLI binary respectively.

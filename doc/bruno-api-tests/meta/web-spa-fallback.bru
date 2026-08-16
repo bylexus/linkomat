@@ -1,0 +1,23 @@
+meta {
+  name: Web assets — SPA fallback
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/no-such-spa-route
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.headers["content-type"]: contains "text/html"
+  res.body: contains "<title>Linkomat</title>"
+}
+
+docs {
+  GET /no-such-spa-route — non-existent path falls back to
+  index.html so the SPA router can take over. Matches the PWA
+  workbox navigateFallback configured in vite.config.ts.
+}

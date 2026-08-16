@@ -1,0 +1,24 @@
+meta {
+  name: Version — basic
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/version
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body.name: eq linkomat-server
+  res.body.version: isString
+  res.body.server_time: isString
+  res.headers["cache-control"]: contains "no-store, private"
+}
+
+docs {
+  GET /version — no auth, build info {name, version, server_time}.
+  Carries Cache-Control: no-store, private per §5.4.
+}

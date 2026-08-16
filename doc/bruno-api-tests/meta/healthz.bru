@@ -1,0 +1,24 @@
+meta {
+  name: Healthz — basic
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/healthz
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body.status: eq ok
+  res.body.version: isString
+  res.body.server_time: isString
+  res.headers["cache-control"]: contains "no-store, private"
+}
+
+docs {
+  GET /healthz — no auth, returns {status, version, server_time}.
+  Carries Cache-Control: no-store, private per §5.4.
+}

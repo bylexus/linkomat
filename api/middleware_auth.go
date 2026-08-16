@@ -11,7 +11,7 @@ import (
 )
 
 func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) *http.Request {
-	if isAuthRoute(r.URL.Path) {
+	if !needsAuth(r.URL.Path) {
 		return r
 	}
 	token := extractAccessToken(r)
@@ -42,8 +42,8 @@ func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) *http.Requ
 	return r.WithContext(ctx)
 }
 
-func isAuthRoute(path string) bool {
-	return strings.HasPrefix(path, "/auth/")
+func needsAuth(path string) bool {
+	return strings.HasPrefix(path, "/entries")
 }
 
 func extractAccessToken(r *http.Request) string {

@@ -1,0 +1,31 @@
+meta {
+  name: Security headers — present on API and web
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/healthz
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.headers["x-content-type-options"]: eq nosniff
+  res.headers["referrer-policy"]: eq no-referrer
+  res.headers["strict-transport-security"]: contains "max-age="
+  res.headers["content-security-policy"]: contains "default-src 'self'"
+  res.headers["content-security-policy"]: contains "frame-ancestors 'none'"
+  res.headers["x-request-id"]: isString
+}
+
+docs {
+  Verifies the §5.4 default security headers are set on API
+  responses. Headers checked:
+  - X-Content-Type-Options: nosniff
+  - Referrer-Policy: no-referrer
+  - Strict-Transport-Security: max-age=...; includeSubDomains
+  - Content-Security-Policy: default-src 'self'; ...
+  - X-Request-Id: random hex per request
+}

@@ -954,3 +954,220 @@ refinements. (Plan order has since been re-ordered: CLI is now step
 **Next**: step 5 of §10 — server embedded web assets, `/healthz`,
 `/version`, security headers (CSP, HSTS), request logging
 refinements.
+
+### Session 7 — server embedded web assets + meta endpoints + security headers (step 5 of §10)
+
+**Status**: done, committed.
+
+**What landed**:
+
+- `api/web_assets.go` (new): `//go:embed all:web_dist` bundles the
+  web PWA build into the server binary. `handleWebAssets` does
+  `fs.Sub(webAssetsFS, "web_dist")` and serves via `http.ServeContent`
+  (not `http.FileServer`, because the latter's `index.html` →
+  canonical-URL redirect would have produced two requests for the
+  SPA fallback and stripped the `index.html` suffix in the URL bar).
+  Behavior: file exists → serve as-is; file is missing or a directory
+  → serve `index.html` (SPA fallback so workbox `navigateFallback`
+  lines up). Trailing slashes are stripped from the lookup path
+  before `fs.Stat` because the embed FS returns "invalid argument"
+  on paths ending in `/`.
+  `mime.AddExtensionType(".webmanifest",
+  "application/manifest+json")` is registered in `init()` so the PWA
+  manifest gets a correct Content-Type (Go's stdlib has no entry for
+  the extension).
+- `api/handlers_health.go` (new): `GET /healthz` →
+  `{status, version, server_time}` per §5.4. No auth, no DB check in
+  v1 — if the handler is reachable, the server is up.
+- `api/handlers_version.go` (new): `GET /version` →
+  `{name, version, server_time}`. `name` is `"linkomat-server"`.
+- `api/server.go`: middleware now sets the full §5.4 security header
+  set on every response —
+  - `X-Content-Type-Options: nosniff` (carried over from session 3)
+  - `Referrer-Policy: no-referrer` (carried over from session 3)
+  - `X-Request-Id: <8-byte-hex>` (carried over from session 3)
+  - `Strict-Transport-Security: max-age=31536000; includeSubDomains`
+    (new — always sent; browsers ignore HSTS over plain HTTP, so
+    sending it in dev is harmless and ensures the header travels
+    through the TLS-terminating proxy untouched in production)
+  - `Content-Security-Policy: default-src 'self'; script-src 'self';
+    style-src 'self' 'unsafe-inline'; img-src 'self' data:;
+    connect-src 'self'; base-uri 'none'; frame-ancestors 'none'`
+    (new — exact literal from §5.4)
+  `Cache-Control: no-store, private` was **removed** from the
+  middleware and pushed down into `writeJSON` / `writeError` /
+  `handleLogout` / `handleEntryDelete` so the SPA and PWA assets
+  don't ship with the anti-cache header (the workbox service worker
+  relies on HTTP caching for the precache to do its job). `remote_ip`
+  was dropped from the request log line to match §5.1's exact field
+  list.
+  Routes now include `GET /healthz`, `GET /version`, and the
+  catch-all `GET /` → `handleWebAssets`.
+- `api/middleware_auth.go`: inverted the public-route check.
+  `isAuthRoute(path) returns true for /auth/*` was renamed to
+  `needsAuth(path) returns true for /entries*`. Anything that is not
+  an `/entries` request skips auth — `/auth/*`, `/healthz`,
+  `/version`, and the web asset routes all pass through with no
+  token lookup.
+- `api/handlers_auth.go`: `writeJSON` and `writeError` now set
+  `Cache-Control: no-store, private` per response. `handleLogout`
+  (204) sets it inline before `WriteHeader`.
+- `api/handlers_entries.go`: `handleEntryDelete` (204) sets
+  `Cache-Control: no-store, private` inline. Other entries handlers
+  inherit it from `writeJSON` via `writeEntriesList`.
+- `Makefile`: new `web-embed` target. Runs after `web-build` and
+  copies `web/dist/.` into `api/web_dist/` so the `//go:embed` pattern
+  in `api/web_assets.go` finds the files at compile time. `build-server`
+  now depends on `web-embed`, so a `make build-server` from clean
+  rebuilds the web app and embeds it into the Go binary. The `cp`
+  uses the trailing-slash-dot form (`cp -R web/dist/. api/web_dist/`)
+  to copy the *contents* of dist into the target directory.
+  `web-embed` prints the file count for ops visibility. `clean`
+  removes `api/web_dist/` alongside the other build artifacts.
+  `all` no longer depends on `web-build` separately — the
+  `build-server → web-embed → web-build` chain covers it.
+  `api-test` now runs `auth entries meta` in one `bru run`
+  invocation.
+- `.gitignore`: `api/web_dist/` added (the embed source must not be
+  committed; it's regenerated from `web/dist`).
+- `doc/bruno-api-tests/meta/` (new): 6 `.bru` requests
+  - `healthz` (seq 1)
+  - `version` (seq 2)
+  - `security-headers` (seq 3) — asserts CSP, HSTS, X-Content-Type-
+    Options, Referrer-Policy, X-Request-Id are present on
+    `/healthz`
+  - `web-root` (seq 4) — `/` serves embedded `index.html`
+  - `web-manifest` (seq 5) — `/manifest.webmanifest` returns
+    `application/manifest+json`
+  - `web-spa-fallback` (seq 6) — `/no-such-spa-route` falls back to
+    `index.html`
+- `doc/bruno-api-tests/README.md`: `meta/` section added to the
+  folders table; import instructions and scope note updated.
+
+**Discrepancies from the plan (called out per §0.2)**:
+
+- §5.4 says "Default response headers" apply to all responses. The
+  plan also says "All `/api/*` (everything under `/entries`,
+  `/auth/refresh`, `/auth/login`, `/auth/logout`, `/healthz`,
+  `/version`) responses carry `Cache-Control: no-store, private`."
+  These two rules together mean the security headers go on
+  everything, but `Cache-Control` only on `/api/*` — which in turn
+  means it must *not* go on the embedded web assets (the PWA
+  service worker relies on HTTP caching to precache and update the
+  shell). The previous single-header approach (set in middleware)
+  was wrong; this session moves `Cache-Control` out of the
+  middleware and into the JSON / 204 response helpers. Web asset
+  responses have no `Cache-Control` header set by the server, so
+  `http.ServeContent`'s default rules apply (200 OK, `Accept-Ranges`
+  for byte serving, and the file's `ModTime` as `Last-Modified`).
+- §5.4's `Strict-Transport-Security (TLS only)` parenthetical
+  implies the header should only be sent when serving over TLS.
+  The server doesn't terminate TLS itself (§5.2) and `r.TLS == nil`
+  always, so a literal reading would mean the header is *never* set
+  by the Go server. The compromise: always set HSTS, since
+  browsers ignore it on plain HTTP and the deployment model puts
+  TLS at the proxy anyway. The header travels through the proxy
+  unchanged to the browser. Documented here so the call is visible.
+- §5.1 lists the request log line fields exactly. The session-3
+  implementation added a `remote_ip` field for ops convenience;
+  removed in this session to match the spec strictly. If `remote_ip`
+  comes back later, it lands as an explicit extra field with a
+  reason, not a silent default.
+- The "request logging refinements" bullet in §10 step 5 turned out
+  to be just removing the extra `remote_ip` field. No new logging
+  features were needed for v1.
+
+**Decisions made in this session**:
+
+- **Custom asset handler, not `http.FileServer`.** `http.FileServer`
+  treats `/index.html` as a redundant name for the directory `/`
+  and redirects (`Location: ./`). That defeats the SPA fallback and
+  forces every unknown URL into two round-trips. The custom handler
+  uses `http.ServeContent` directly so the file is served inline
+  with its real Content-Type and the request completes in one hop.
+- **Strip trailing `/` before `fs.Stat`.** `embed.FS` rejects paths
+  ending in `/` with "invalid argument" (not `fs.ErrNotExist`), so
+  the original branch was producing 500s on `/sqlite/` and similar.
+  Trimming the slash in the handler normalizes both `/foo` and
+  `/foo/` to the same lookup.
+- **Register `.webmanifest` MIME in `init`.** Go's stdlib has no
+  entry for `.webmanifest`, so without registration `http.ServeContent`
+  serves it as `application/octet-stream` and the browser refuses
+  to install the PWA. Single `mime.AddExtensionType` call fixes
+  it. Lives in `api/web_assets.go` next to the embed declaration
+  so the registration travels with the asset code.
+- **Auth middleware inverts to "needs auth", not "is public".**
+  The old `isAuthRoute` (true for `/auth/*`) was misnamed and
+  fragile — adding a new public route would have silently broken
+  auth. The new `needsAuth` (true for `/entries*`) is positive
+  about which endpoints require a token; everything else skips
+  auth. Adding a new public endpoint now means adding a route,
+  period.
+- **`api/web_dist/` is build-output, not source.** Lives next to
+  the embed directive so the directory layout matches the import
+  path. `make clean` removes it. `.gitignore` keeps it out of
+  the repo. The build chain is `make build-server` →
+  `web-embed` (which runs `web-build` first) → copy → `go build`.
+
+**Smoke checks performed**:
+
+- `make build-server` from clean: `web-build` (`vue-tsc` + `vite
+  build`, 12 precache entries) → `web-embed` (11 top-level files
+  copied) → `go build` clean. Server binary 18 MB (up from ~6 MB
+  before — the embedded dist is ~96 KiB, the size jump is just
+  normal Go binary growth between sessions).
+- `go vet ./api/...` clean.
+- Server starts with `LINKOMAT_COOKIE_SECURE=false`; logs
+  `linkomat-server 0.1.0 listening on :8080`.
+- `curl -i http://localhost:8080/healthz` →
+  `200 OK`, `Content-Type: application/json`,
+  `Cache-Control: no-store, private`,
+  `Content-Security-Policy: default-src 'self'; ... frame-ancestors 'none'`,
+  `Strict-Transport-Security: max-age=31536000; includeSubDomains`,
+  `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: no-referrer`, `X-Request-Id: <hex>`,
+  body `{"status":"ok","version":"0.1.0","server_time":"…Z"}`.
+- `curl -i http://localhost:8080/version` →
+  `200 OK`, same security headers, body
+  `{"name":"linkomat-server","version":"0.1.0","server_time":"…Z"}`.
+- `curl -i http://localhost:8080/` → `200 OK`, `text/html`,
+  body is the embedded `index.html` (with the hashed asset
+  filenames from the latest web build). No `Cache-Control: no-store`
+  on the response.
+- `curl -i http://localhost:8080/index.html` → `200 OK`, same
+  content. **No 301**, which is what `http.FileServer` would
+  have produced.
+- `curl -i http://localhost:8080/assets/index-Drb3QEXr.js` →
+  `200 OK`, `Content-Type: text/javascript; charset=utf-8`, full
+  59 766-byte body. No `Cache-Control: no-store`.
+- `curl -i http://localhost:8080/manifest.webmanifest` →
+  `200 OK`, `Content-Type: application/manifest+json`, body is
+  the parsed manifest JSON.
+- `curl -i http://localhost:8080/no-such-spa-route` → `200 OK`,
+  `text/html`, body is `index.html` (SPA fallback works).
+- `curl -i http://localhost:8080/sqlite/` → `200 OK`, `text/html`,
+  body is `index.html` (directory lookup falls back).
+- `curl -i http://localhost:8080/entries` → `401`, JSON error
+  body, `Cache-Control: no-store, private` (middleware still
+  rejects unauthenticated `/entries*`).
+- `curl -X POST http://localhost:8080/auth/login -d '{"username":
+  "alice","password":"hunter2"}'` → `200`, cookies set with
+  `Path=/; HttpOnly; SameSite=Strict`, body is `shared.AuthResponse`.
+- Repeat with cookie jar: `GET /entries` → `200`,
+  `user_id=1` in the slog line. `POST /auth/logout` → `204`,
+  `Cache-Control: no-store, private`, both cookies cleared.
+  `POST /auth/refresh` (cookie) → `200`, new cookie pair, old
+  refresh revoked.
+- `make api-test` (auth + entries + meta, with `charlie`
+  pre-deactivated): **24/25 requests pass, 126/129 assertions
+  pass**. The 1 failing request is `login-rate-limited`, the
+  documented stateful test that needs 5 prior failed attempts in
+  the same minute. Meta-only run: **6/6 requests, 27/27
+  assertions**.
+- `make api-test-req REQ=meta/security-headers` passes in
+  isolation (verifies all 5 default headers on `/healthz`).
+- `make api-test-reset` wipes the captured token values from
+  `Local.bru` so the file is clean for committing.
+
+**Next**: step 6 of §10 — web PWA scaffold + sql.js wrapper + OPFS
+persistence + `PRAGMA integrity_check` on startup.
