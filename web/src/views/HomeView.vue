@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { RecycleScroller } from 'vue-virtual-scroller';
 import 'vue-virtual-scroller/dist/vue-virtual-scroller.css';
@@ -8,11 +8,15 @@ import { DB_CHANGE_EVENT } from '../db/sqlite';
 import { uuidv7 } from '../utils/uuid';
 import { normalizeUrl } from '../utils/url';
 import { useAuth } from '../state/auth';
+import { useSyncState } from '../state/sync';
+import { syncNow } from '../sync/engine';
 import type { Entry } from '../db/sqlite';
 
 const { username, logout } = useAuth();
 const { state, db } = useDb(username.value);
 const router = useRouter();
+
+const syncState = useSyncState();
 
 const search = ref('');
 const debouncedSearch = ref('');
@@ -64,6 +68,30 @@ function onRowClick(id: string): void {
 async function onLogout(): Promise<void> {
   await logout();
 }
+
+function onRetry(): void {
+  void syncNow();
+}
+
+const stateLabel = computed(() => {
+  if (syncState.value.syncing) return 'Syncing…';
+  if (syncState.value.lastError) return `Error: ${syncState.value.lastError}`;
+  if (!syncState.value.online) return 'Offline';
+  return 'Online';
+});
+
+const stateLabelClass = computed(() => {
+  if (syncState.value.syncing) return 'sync-state-active';
+  if (syncState.value.lastError) return 'sync-state-error';
+  if (!syncState.value.online) return 'sync-state-offline';
+  return 'sync-state-online';
+});
+
+function rowDotClass(entry: Entry): string {
+  if (syncState.value.syncing) return 'row-dot row-dot-spinner';
+  if (entry.local_dirty_at) return 'row-dot row-dot-dirty';
+  return 'row-dot row-dot-synced';
+}
 </script>
 
 <template>
@@ -79,6 +107,29 @@ async function onLogout(): Promise<void> {
         spellcheck="false"
         data-test="home-search"
       />
+      <div class="sync-status" data-test="home-status-chip">
+        <span
+          v-if="syncState.pendingCount > 0"
+          class="sync-status-pending"
+          data-test="home-status-pending"
+        >
+          pending: {{ syncState.pendingCount }}
+        </span>
+        <span
+          class="sync-status-state"
+          :class="stateLabelClass"
+          data-test="home-status-state"
+        >{{ stateLabel }}</span>
+        <button
+          v-if="syncState.persistentFailure"
+          type="button"
+          class="sync-status-retry"
+          data-test="home-status-retry"
+          @click="onRetry"
+        >
+          Retry now
+        </button>
+      </div>
       <div class="home-meta">
         <span class="home-username" data-test="home-username">{{ username }}</span>
         <button
@@ -131,6 +182,7 @@ async function onLogout(): Promise<void> {
             :data-test-id="item.id"
             @click="onRowClick(item.id)"
           >
+            <span class="row-status" :class="rowDotClass(item)" data-test="home-row-status" aria-hidden="true" />
             <div class="row-title">{{ item.title || item.url || '(untitled)' }}</div>
             <a
               v-if="item.url"
@@ -224,24 +276,115 @@ async function onLogout(): Promise<void> {
   background: #f3f4f6;
 }
 
+.sync-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  flex-wrap: wrap;
+}
+
+.sync-status-pending {
+  background: #fef3c7;
+  color: #92400e;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-weight: 500;
+}
+
+.sync-status-state {
+  font-weight: 500;
+}
+
+.sync-state-online {
+  color: #047857;
+}
+
+.sync-state-offline {
+  color: #6b7280;
+}
+
+.sync-state-active {
+  color: #2563eb;
+}
+
+.sync-state-error {
+  color: #b91c1c;
+}
+
+.sync-status-retry {
+  background: #2563eb;
+  border: 1px solid #2563eb;
+  border-radius: 0.375rem;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+  color: #ffffff;
+}
+
+.sync-status-retry:hover {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+}
+
 .list {
-  height: calc(100vh - 11rem);
+  height: calc(100vh - 13rem);
   border: 1px solid #e5e7eb;
   border-radius: 0.5rem;
   overflow: hidden;
 }
 
 .row {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
   padding: 0.75rem 1rem;
+  padding-right: 1.75rem;
   border-bottom: 1px solid #e5e7eb;
   height: 96px;
   overflow: hidden;
   background: #ffffff;
   box-sizing: border-box;
   cursor: pointer;
+}
+
+.row-status {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  pointer-events: none;
+}
+
+.row-dot {
+  display: inline-block;
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 50%;
+}
+
+.row-dot-synced {
+  background: #10b981;
+}
+
+.row-dot-dirty {
+  background: #f59e0b;
+}
+
+.row-dot-spinner {
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 2px solid #93c5fd;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  box-sizing: border-box;
+  animation: sync-spin 1s linear infinite;
+}
+
+@keyframes sync-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .row-title {

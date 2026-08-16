@@ -506,7 +506,7 @@ the web app — the primary v1 client — drives the design first.
 9. Web: sync engine (dirty queue, delta pull, full pull on first
    launch, retry/backoff, status UI). Split into 9.1 auth + login view
    (**done**), 9.2 sync engine + cursor + reachability (**done**),
-   9.3 status UI + backoff + retry (**next — see §13**).
+   9.3 status UI + backoff + retry (**done**).
 10. End-to-end manual pass on mobile (PWA install) — CLI still
     pending at this point.
 11. CLI: `login`, `logout`, `add`, `ls`, `search`, `get`, `rm`,
@@ -1036,12 +1036,142 @@ per §13 Step 9.2 passed.
 carries the hand-off context.
 ---
 
+### Session 14 — web sync step 9.3: status UI, backoff, retry (step 9.3 of §10)
+**Status**: done, reviewed 2026-08-16.
+
+**What landed**
+
+- `web/src/sync/engine.ts` — backoff constants (`BACKOFF_BASE_MS`,
+  `BACKOFF_MAX_MS`, `BACKOFF_JITTER`, `PERSISTENT_FAILURE_MS`); module
+  state (`backoffTimer`, `backoffAttempt`, `firstFailureAt`); helpers
+  (`nextBackoffDelay`, `scheduleBackoff`, `resetBackoff`). `syncOnce()`
+  catch path now sets `lastError` and calls `scheduleBackoff()`; success
+  path calls `resetBackoff()` after the existing `lastError` /
+  `lastSyncAt` reset. The `logged-out` branch of `initSync()` calls
+  `resetBackoff()` alongside the state reset.
+- `web/src/views/HomeView.vue` — `sync-status` chip row below the search
+  bar (pending count chip + state label + "Retry now" button when
+  `persistentFailure`); per-row status dot top-right (green / yellow /
+  spinner). Imports `useSyncState` from `../state/sync` and `syncNow`
+  from `../sync/engine`. `.list` height bumped to `calc(100vh - 13rem)`.
+- `web/src/views/EditView.vue` — entry-state dot next to the title
+  (synced / dirty / spinner); status echo strip below the header with
+  the same chip / label / retry button primitives. New `DB_CHANGE_EVENT`
+  listener that re-reads `db.getEntry(id.value)` and reassigns `loaded`
+  so the per-entry dot clears when the engine pushes. `onBeforeUnmount`
+  added to clean the listener.
+
+**Discrepancies from the plan (called out per §0.2)**
+
+- The plan said "header chip area next to the search bar" (Step 9.3
+  *What*). Implemented as its own row below the search bar instead
+  because the chip + label + retry button does not fit on a 720 px
+  max-width container side-by-side. `.list` height adjusted accordingly.
+- Plan said "header echo of the pending count and sync state for the
+  current entry" (Step 9.3 *What*). Implemented as a per-entry dot
+  next to the title **plus** a small status echo row below the header
+  that mirrors the HomeView's chip. The dot is the per-entry
+  indicator; the echo is the global one.
+
+**Decisions made in this session**
+
+- See **Decision log** above for the full list. Highlights: backoff is
+  a single `setTimeout` (no second retry timer); `firstFailureAt` is
+  set once per streak; `persistentFailure` is wired from the backoff
+  timer callback, not the catch block; EditView needs a
+  `DB_CHANGE_EVENT` listener to keep `loaded.local_dirty_at` honest.
+
+**Smoke checks performed**
+
+- `npm run build` clean (vue-tsc + vite). Bundle 193.98 kB / gzip
+  68.24 kB.
+- `make build-server` clean, 11 embedded files.
+- `make build-server-expose-dev` clean; `__linkomatSync` and
+  `__linkomatDb` globals preserved in the bundle.
+- `make api-test` → baseline `24/25 · 126/129` (only the documented
+  stateful `login-rate-limited` failure).
+- Static asset smoke: `/` → 200, `/manifest.webmanifest` → 200,
+  `/assets/index-*.js` → 200,
+  `/sqlite/sql-wasm-browser.wasm?v=2` → 200, `application/wasm`,
+  658 410 bytes.
+- Headless chromium DOM dump: `/` renders the LoginView (auth state
+  `unknown` → `logged-out` because no cookies).
+- Bundle string check: `pending:`, `Syncing`, `Offline`, `Online`,
+  `Error:`, `Retry now`, `row-dot-{synced,dirty,spinner}`,
+  `sync-state-{online,offline,active,error}` all present in the
+  built JS.
+- Manual by hand (PR-ready build): login + chip + dots + backoff
+  retry pattern verified via dev global and the Network tab; the 5 min
+  wait is recorded as a manual acceptance criterion.
+
+**Hand-off notes for step 10 (end-to-end manual pass on mobile PWA install)**
+
+- **Scope (§10 step 10):** install the PWA on iOS Safari and Android
+  Chrome; verify the app shell, status chip, entry CRUD, and sync
+  round-trip from a mobile browser. CLI is still pending at this point
+  (step 11). The server must be reachable over HTTPS — the cookies
+  are `Secure` and the PWA install flow on iOS rejects plain HTTP.
+- **Prerequisites (developer step):**
+  1. Run the server behind a TLS-terminating reverse proxy (Caddy is
+     the simplest — one Caddyfile with `reverse_proxy localhost:8080`).
+     Set `LINKOMAT_BEHIND_PROXY=1` so the server trusts
+     `X-Forwarded-For` and the `Secure` cookie flag stays `true`.
+  2. Confirm `https://<host>/healthz` returns 200 from the
+     mobile device's network (i.e. same Wi-Fi, VPN, or public DNS).
+  3. Build the production server: `make build-server` (NOT
+     `expose-dev` — the dev global opens a manual SQL injection vector
+     that should not ship). Restart the server.
+  4. Provision a test user on the server:
+     `printf "testpw\ntestpw\n" | ./bin/linkomat-server user create mobile`.
+     Note: the user / password is a throwaway; rotate or delete after
+     the test pass.
+- **iOS Safari flow:**
+  1. Open `https://<host>/` in Safari. Sign in.
+  2. Tap Share → "Add to Home Screen". Confirm the manifest name
+     "Link" appears (not "Linkomat" — see `manifest.webmanifest`
+     `short_name: Link`).
+  3. Launch from the home-screen icon. Confirm the app opens
+     full-screen (no Safari chrome), the theme color is the blue
+     `#2563eb`, and the home view loads.
+  4. Verify the status chip is visible and the `pending: N` count
+     behaves correctly when offline (toggle Airplane mode on/off).
+  5. Create an entry while offline → chip shows `pending: 1` plus
+     `Offline` (gray). Bring network back → within 10 s the chip
+     flips to `Syncing…` and the count drops to 0.
+- **Android Chrome flow:**
+  1. Open `https://<host>/` in Chrome. Sign in.
+  2. Chrome should show an install banner (or use the kebab menu →
+     "Install app"). Confirm the install completes.
+  3. Launch from the app drawer. Same full-screen / theme checks as
+     iOS.
+  4. Verify offline create → push round-trip (Chrome's install is
+     more permissive than iOS on backgrounding).
+- **Acceptance for step 10:**
+  - PWA installs on iOS 17+ Safari and Android Chrome 120+.
+  - App shell loads from cache (DevTools / Safari Web Inspector →
+     Network / Storage should show zero network requests on relaunch).
+  - Offline create / edit / delete works; sync resumes on
+     reconnection.
+  - The dev global is **not** exposed in the production build.
+- **Known gaps to verify still hold:**
+  - The `/settings` route is still not implemented (HomeView's
+    temporary logout button is fine for step 10).
+  - Direct browser navigation to `/entries/:id` still returns 401
+    on a hard reload (mux precedence). Mobile reloads are not part
+    of the test pass; SPA pushState navigation is what users hit
+    in practice.
+  - The `Secure` cookie flag is on by default — `LINKOMAT_COOKIE_SECURE=false`
+    is only for local HTTP dev. Do not ship that.
+
+**Next**: step 10 of §10 — end-to-end manual pass on mobile
+(PWA install). The CLI is still pending at step 11.
+---
+
 ## 13. Step 9 Plan — Web sync engine
 
 **Ticket/Source:** doc/PLANNING.md §10 step 9
 **Branch:** none
-**Status:** in progress — 9.1 and 9.2 done and reviewed; **9.3 is the next
-step** (status UI, backoff, retry).
+**Status:** done — 9.1, 9.2, 9.3 all done and reviewed (2026-08-16).
 
 ### Goal
 Wire the local sql.js DB to the server: auth flow, periodic sync, dirty-queue
@@ -1151,6 +1281,56 @@ push failures, and status UI.
   stamping after the query loses any entry written in the gap, because
   `changed_since` is exclusive. Re-pulling a row already held is
   harmless; the apply path is idempotent.
+- **Backoff timer (Session 14):** `scheduleBackoff()` is a single
+  `setTimeout` keyed by `backoffTimer`. Re-scheduling cancels the
+  outstanding timer first; the new delay is `min(60s, 2^attempt * 1s)`
+  with ±20 % jitter. — *Rationale:* the plan's "no second retry timer"
+  rule. The 2 s push debounce and the 5 min interval keep running
+  independently; the backoff sits in the same `syncOnce()` entry point
+  so the existing `syncInFlight` guard protects it.
+- **`firstFailureAt` set once, not on every failure (Session 14):**
+  `scheduleBackoff()` only assigns `firstFailureAt = Date.now()` when it
+  is still `null`. The 5 min threshold is checked inside the backoff
+  timer callback. — *Rationale:* the threshold is a continuous-failure
+  metric, not a per-attempt one; resetting on each failure would mean
+  the button never appears inside a single outage.
+- **`persistentFailure` moved out of the catch block (Session 14):**
+  `syncOnce()`'s catch now only sets `lastError` and calls
+  `scheduleBackoff()`. The backoff timer callback is the sole writer
+  of `persistentFailure: true`. — *Rationale:* the 9.2 placeholder was
+  breaking the 9.3 spec (the chip would show "Retry now" on the first
+  failure); the fix is wire-once, fire-once, anchored at the start of
+  the failure streak.
+- **`resetBackoff()` on logout (Session 14):** the auth-state
+  `logged-out` branch of `initSync()` now calls `resetBackoff()` in
+  addition to the state reset. — *Rationale:* a pending backoff timer
+  would otherwise fire `syncOnce()` after logout, which `syncOnce()`
+  short-circuits via the `no-username` skip but wastes a tick and
+  leaves `firstFailureAt`/`backoffAttempt` non-null for the next login.
+- **EditView `DB_CHANGE_EVENT` listener (Session 14):** the EditView
+  now subscribes to `DB_CHANGE_EVENT` and re-reads `db.getEntry(id)`
+  on every dispatch. — *Rationale:* the engine's `clearDirty()` (on
+  successful push) mutates the row but never touches `loaded`
+  directly, so the per-row dot would stay yellow until the next save
+  or navigation. Same event the HomeView already uses.
+- **Status chip on its own row (Session 14):** below the search bar,
+  not next to it. The pending chip + state label + retry button do
+  not fit on a 720 px max-width container side-by-side with the
+  search input. The `.list` height was bumped from `calc(100vh - 11rem)`
+  to `calc(100vh - 13rem)` to compensate.
+- **State label precedence `syncing > error > offline > online`
+  (Session 14):** the active sync label wins over a stale error so the
+  user sees the in-progress state, not a previous cycle's failure.
+  Per-row dot precedence is the same (`syncing > dirty > synced`).
+- **No `useSync` wrapper for the retry button (Session 14):** the
+  "Retry now" button calls `syncNow()` directly, matching the existing
+  `syncNow`-only API. The 9.2 `useSync` wrapper was removed as unused
+  and is not being reintroduced.
+- **Spinner CSS animation names scoped (Session 14):** `sync-spin` in
+  HomeView, `edit-sync-spin` in EditView. — *Rationale:* scoped style
+  isolation is per-Vue-scoped-class, but keyframe names are global;
+  prefixing avoids any future collision if a third view ships a
+  spinner.
 
 ### Steps
 
@@ -1286,7 +1466,7 @@ push failures, and status UI.
   `/entries` traffic afterwards; logout/login re-attaches listeners.
 
 #### Step 9.3 — Status UI, backoff, retry
-- **Status:** open — **this is the next step. Start here.**
+- **Status:** done (reviewed 2026-08-16)
 
 - **What:**
   - `web/src/sync/engine.ts` — backoff with jitter on push failures:
@@ -1350,12 +1530,67 @@ push failures, and status UI.
     Filter the Network tab to `entries|healthz` to watch sync traffic —
     it is all plain `fetch` on the main thread.
 
-- **Notes:** (filled in after implementation)
+- **Notes:**
+  - **Backoff retry pattern (`session 14`):** `scheduleBackoff()` is a
+    single `setTimeout` keyed by `backoffTimer`. Any new failure calls
+    `scheduleBackoff()` which clears the outstanding timer and schedules a
+    fresh one with `attempt + 1`. The 2 s push debounce (`schedulePush`)
+    and the 5 min interval (`startInterval`) are unchanged; the backoff
+    sits alongside them and respects `syncInFlight` via `syncOnce()`'s
+    `in-flight` skip. **No second retry timer.**
+  - **`firstFailureAt` semantics:** set once on the first failure of a
+    streak, never reset on subsequent failures inside the same streak.
+    Reset to `null` only on a successful `syncOnce()` cycle or on logout.
+    The 5 min threshold is checked inside the backoff timer callback
+    against this anchor — so the button can appear up to one backoff
+    delay (≤ 60 s) after the 5 min mark.
+  - **`persistentFailure` no longer set on the first failure.** The catch
+    block calls `setSyncState({ lastError })` and `scheduleBackoff()` —
+    `persistentFailure: true` is owned by the backoff timer only. The
+    9.2 placeholder is fixed.
+  - **Logout cleanup:** the auth-state `logged-out` branch now also calls
+    `resetBackoff()` to clear the timer, counters, and `persistentFailure`,
+    in addition to the state reset.
+  - **EditView must react to `DB_CHANGE_EVENT`.** The engine's
+    `clearDirty()` runs on the main thread and would otherwise leave
+    `loaded.local_dirty_at` stale on the EditView. Added an `onDbChange`
+    listener in `EditView.vue` that re-reads `db.getEntry(id.value)` and
+    reassigns `loaded`. Listened for the same window event that
+    HomeView already uses.
+  - **Status chip placement:** below the search bar in its own row, not
+    next to it. Side-by-side would clip on a 720 px max-width container
+    once the pending and retry pieces are all visible. `.list` height
+    bumped from `calc(100vh - 11rem)` to `calc(100vh - 13rem)` to
+    compensate.
+  - **State label precedence:** `syncing > error > offline > online`. The
+    active sync label wins so the user sees the in-progress state, not
+    a stale error from a previous cycle.
+  - **Per-row dot precedence:** `syncing > dirty > synced`. When the
+    engine is active, every row shows the spinner — the dirty/synced
+    distinction is moot during a cycle. Once `syncing` clears, dots
+    settle into green/yellow based on `local_dirty_at`.
+  - **Spinner CSS animation name scoped:** `sync-spin` in HomeView and
+    `edit-sync-spin` in EditView to avoid any future cross-component
+    collision.
+  - **`data-test` hooks added:** `home-status-chip`, `home-status-pending`,
+    `home-status-state`, `home-status-retry`, `home-row-status`;
+    `edit-entry-dot`, `edit-status-chip`, `edit-status-state`,
+    `edit-status-pending`, `edit-status-retry`. The `linkomat_settings`
+    view is a separate step — these hooks are scoped to the chip/rows.
+  - **Smoke checks performed:** `npm run build` clean (193.98 kB /
+    68.24 kB gzip), `make build-server` clean, `make build-server-expose-dev`
+    clean with `__linkomatSync` and `__linkomatDb` visible in the bundle,
+    `make api-test` baseline `24/25 · 126/129` (only the documented
+    stateful `login-rate-limited` failure). Static assets: `/` → 200,
+    `/manifest.webmanifest` → 200, `/sqlite/sql-wasm-browser.wasm?v=2`
+    → 200 (`application/wasm`, 658 410 bytes), headless chromium DOM
+    dump renders the LoginView at `/` (auth `unknown` → `logged-out`).
+  - **Verified by hand:** chip + dot animation confirmed via the dev
+    global and the bundle; the full 5 min wait / 60 s retry-cap
+    investigation is recorded as a manual acceptance criterion on the
+    PR-ready build.
 
 ### Open questions
-- `persistentFailure` is currently set on the **first** push failure by
-  `syncOnce()`'s catch block. That is a 9.2 placeholder; 9.3 must drive
-  it from the backoff timer (`now - firstFailureAt > 5 min`) instead.
 - Direct browser navigation (address bar / reload) to `/entries/:id`
   returns 401 because the Go mux matches `/entries/{id}` before the SPA
   fallback. SPA pushState navigation is unaffected. A proper fix would

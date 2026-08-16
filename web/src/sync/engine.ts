@@ -13,13 +13,53 @@ import { DB_CHANGE_EVENT } from '../db/sqlite';
 
 const PULL_PAGE_SIZE = 200;
 const PULL_MAX_PAGES = 200;
-const SYNC_INTERVAL_MS = 5 * 60_000;
+const SYNC_INTERVAL_MS = 1 * 60_000;
 const PUSH_DEBOUNCE_MS = 2_000;
+const BACKOFF_BASE_MS = 1_000;
+const BACKOFF_MAX_MS = 60_000;
+const BACKOFF_JITTER = 0.2;
+const PERSISTENT_FAILURE_MS = 5 * 60_000;
 
 let syncInFlight = false;
 let initialized = false;
 let intervalTimer: number | null = null;
 let pushTimer: number | null = null;
+let backoffTimer: number | null = null;
+let backoffAttempt = 0;
+let firstFailureAt: number | null = null;
+
+function nextBackoffDelay(): number {
+  const base = Math.min(BACKOFF_MAX_MS, BACKOFF_BASE_MS * Math.pow(2, backoffAttempt));
+  const jitter = 1 + (Math.random() * 2 - 1) * BACKOFF_JITTER;
+  return Math.round(base * jitter);
+}
+
+function scheduleBackoff(): void {
+  if (typeof window === 'undefined') return;
+  if (firstFailureAt === null) {
+    firstFailureAt = Date.now();
+  }
+  backoffAttempt++;
+  if (backoffTimer !== null) clearTimeout(backoffTimer);
+  const delay = nextBackoffDelay();
+  backoffTimer = window.setTimeout(() => {
+    backoffTimer = null;
+    if (firstFailureAt !== null && Date.now() - firstFailureAt > PERSISTENT_FAILURE_MS) {
+      setSyncState({ persistentFailure: true });
+    }
+    void syncOnce();
+  }, delay);
+}
+
+function resetBackoff(): void {
+  if (backoffTimer !== null) {
+    clearTimeout(backoffTimer);
+    backoffTimer = null;
+  }
+  backoffAttempt = 0;
+  firstFailureAt = null;
+  setSyncState({ persistentFailure: false });
+}
 
 function logError(err: unknown): string {
   if (err instanceof Error) return err.message;
@@ -167,14 +207,12 @@ async function syncOnce(): Promise<void> {
     const cursor = db.db.getCursor();
     const serverTime = cursor === null ? await fullPull() : await deltaPull(cursor);
     await applyCursor(serverTime);
-    setSyncState({
-      lastError: null,
-      lastSyncAt: new Date().toISOString(),
-      persistentFailure: false,
-    });
+    setSyncState({ lastError: null, lastSyncAt: new Date().toISOString() });
+    resetBackoff();
     ok = true;
   } catch (err) {
-    setSyncState({ lastError: logError(err), persistentFailure: true });
+    setSyncState({ lastError: logError(err) });
+    scheduleBackoff();
   } finally {
     setSyncState({ syncing: false });
     syncInFlight = false;
@@ -288,6 +326,7 @@ export function initSync(): void {
           lastSyncAt: null,
           persistentFailure: false,
         });
+        resetBackoff();
       }
     },
     { immediate: true }

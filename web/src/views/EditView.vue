@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useDb } from '../db';
-import type { Entry } from '../db/sqlite';
+import { DB_CHANGE_EVENT, type Entry } from '../db/sqlite';
 import { normalizeUrl } from '../utils/url';
 import { useAuth } from '../state/auth';
+import { useSyncState } from '../state/sync';
+import { syncNow } from '../sync/engine';
 
 const route = useRoute();
 const router = useRouter();
 const { username } = useAuth();
 const { state, db } = useDb(username.value);
+const syncState = useSyncState();
 
 const id = computed(() => String(route.params.id));
 
@@ -23,6 +26,19 @@ const form = reactive({
 const tagInput = ref('');
 const error = ref<string | null>(null);
 
+function reloadLoaded(): void {
+  if (!db || state.value.kind !== 'ready') return;
+  if (!loaded.value) return;
+  const fresh = db.getEntry(id.value);
+  if (fresh) {
+    loaded.value = fresh;
+  }
+}
+
+function onDbChange(): void {
+  reloadLoaded();
+}
+
 onMounted(() => {
   if (!db || state.value.kind !== 'ready') return;
   const existing = db.getEntry(id.value);
@@ -33,6 +49,11 @@ onMounted(() => {
     form.note = existing.note;
     form.tags = [...existing.tags];
   }
+  window.addEventListener(DB_CHANGE_EVENT, onDbChange);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener(DB_CHANGE_EVENT, onDbChange);
 });
 
 function isFormEmpty(): boolean {
@@ -104,13 +125,40 @@ async function onDelete(): Promise<void> {
 function goBack(): void {
   router.push('/');
 }
+
+function onRetry(): void {
+  void syncNow();
+}
+
+const stateLabel = computed(() => {
+  if (syncState.value.syncing) return 'Syncing…';
+  if (syncState.value.lastError) return `Error: ${syncState.value.lastError}`;
+  if (!syncState.value.online) return 'Offline';
+  return 'Online';
+});
+
+const stateLabelClass = computed(() => {
+  if (syncState.value.syncing) return 'sync-state-active';
+  if (syncState.value.lastError) return 'sync-state-error';
+  if (!syncState.value.online) return 'sync-state-offline';
+  return 'sync-state-online';
+});
+
+const entryDotClass = computed(() => {
+  if (syncState.value.syncing) return 'edit-entry-dot edit-entry-dot-spinner';
+  if (loaded.value?.local_dirty_at) return 'edit-entry-dot edit-entry-dot-dirty';
+  return 'edit-entry-dot edit-entry-dot-synced';
+});
 </script>
 
 <template>
   <main class="edit">
     <header class="edit-header">
       <button type="button" class="icon-btn" @click="goBack" data-test="edit-back">←</button>
-      <span class="edit-title">{{ loaded ? 'Edit entry' : 'New entry' }}</span>
+      <div class="edit-title-area">
+        <span class="edit-entry-dot" :class="entryDotClass" data-test="edit-entry-dot" aria-hidden="true" />
+        <span class="edit-title">{{ loaded ? 'Edit entry' : 'New entry' }}</span>
+      </div>
       <button
         v-if="loaded"
         type="button"
@@ -122,6 +170,30 @@ function goBack(): void {
       </button>
       <span v-else class="icon-btn-spacer" />
     </header>
+
+    <div class="edit-sync-status" data-test="edit-status-chip">
+      <span
+        class="sync-status-state"
+        :class="stateLabelClass"
+        data-test="edit-status-state"
+      >{{ stateLabel }}</span>
+      <span
+        v-if="syncState.pendingCount > 0"
+        class="sync-status-pending"
+        data-test="edit-status-pending"
+      >
+        pending: {{ syncState.pendingCount }}
+      </span>
+      <button
+        v-if="syncState.persistentFailure"
+        type="button"
+        class="sync-status-retry"
+        data-test="edit-status-retry"
+        @click="onRetry"
+      >
+        Retry now
+      </button>
+    </div>
 
     <section v-if="state.kind !== 'ready'" class="banner" data-test="edit-status">
       <span v-if="state.kind === 'pending'">Loading local database…</span>
@@ -214,14 +286,103 @@ function goBack(): void {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  margin-bottom: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.edit-title-area {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
 }
 
 .edit-title {
   font-size: 1.125rem;
   font-weight: 500;
-  flex: 1;
-  text-align: center;
+}
+
+.edit-entry-dot {
+  display: inline-block;
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 50%;
+}
+
+.edit-entry-dot-synced {
+  background: #10b981;
+}
+
+.edit-entry-dot-dirty {
+  background: #f59e0b;
+}
+
+.edit-entry-dot-spinner {
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 2px solid #93c5fd;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  box-sizing: border-box;
+  animation: edit-sync-spin 1s linear infinite;
+}
+
+@keyframes edit-sync-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.edit-sync-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.sync-status-state {
+  font-weight: 500;
+}
+
+.sync-state-online {
+  color: #047857;
+}
+
+.sync-state-offline {
+  color: #6b7280;
+}
+
+.sync-state-active {
+  color: #2563eb;
+}
+
+.sync-state-error {
+  color: #b91c1c;
+}
+
+.sync-status-pending {
+  background: #fef3c7;
+  color: #92400e;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-weight: 500;
+}
+
+.sync-status-retry {
+  background: #2563eb;
+  border: 1px solid #2563eb;
+  border-radius: 0.375rem;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+  color: #ffffff;
+}
+
+.sync-status-retry:hover {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
 }
 
 .icon-btn {
