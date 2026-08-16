@@ -91,3 +91,11 @@ The project should use the following file structure:
 │   └── go.mod
 └── web             # The web client application
 ```
+
+
+## Whishlist
+
+- Markdown in Notes field with html / edit view
+- WebSocket connection to clients of the same user, to push a sync instead of polling
+- on-/offline indicator
+- manual sync-now button
