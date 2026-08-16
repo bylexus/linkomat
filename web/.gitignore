@@ -4,3 +4,4 @@ dev-dist/
 *.log
 *.tsbuildinfo
 .DS_Store
+public/sqlite/sql-wasm-browser.wasm

@@ -35,8 +35,9 @@ export default defineConfig({
         ]
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,wasm,svg,png,ico}'],
+        globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
         navigateFallback: '/index.html',
+        navigateFallbackDenylist: [/^\/sqlite\//],
         runtimeCaching: []
       }
     })
