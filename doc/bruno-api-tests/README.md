@@ -76,7 +76,7 @@ captures `entryId` for the downstream tests.
 
 The cookie auth path itself is tested by `auth/refresh-cookie`. The
 PWA only sends cookies per §7.4, so the smoke check there happens in
-step 7+ where the web app exercises the endpoints.
+step 6+ where the web app exercises the endpoints.
 
 ## Run order
 

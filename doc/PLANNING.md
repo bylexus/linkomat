@@ -442,7 +442,9 @@ Cookies are always `HttpOnly`, `SameSite=Strict`. `Secure` flag follows
 
 ## 10. Build Checklist
 
-Order of implementation (manual dev loop, no CI, no tests):
+Order of implementation (manual dev loop, no CI, no tests). The CLI
+is intentionally the last step so the API surface stays stable while
+the web app — the primary v1 client — drives the design first.
 
 1. Repo scaffold: `go.work`, `Makefile`, module skeletons for `api`,
    `cli`, `shared`, Vite scaffold for `web`.
@@ -454,15 +456,17 @@ Order of implementation (manual dev loop, no CI, no tests):
    `AutoMigrate` + `schema_version`.
 5. Server: embedded web assets, `/healthz`, `/version`, security
    headers, request logging.
-6. CLI: `login`, `logout`, `add`, `ls`, `search`, `get`, `rm`,
-   `edit` (with `fsnotify`).
-7. Web: PWA scaffold, sql.js wrapper, OPFS persistence, integrity
+6. Web: PWA scaffold, sql.js wrapper, OPFS persistence, integrity
    check.
-8. Web: home view + virtualized list + search.
-9. Web: note editing view + save-on-blur + delete.
-10. Web: sync worker (dirty queue, delta pull, full pull on first
-    launch, retry/backoff, status UI).
-11. End-to-end manual pass on mobile (PWA install) and CLI.
+7. Web: home view + virtualized list + search.
+8. Web: note editing view + save-on-blur + delete.
+9. Web: sync worker (dirty queue, delta pull, full pull on first
+   launch, retry/backoff, status UI).
+10. End-to-end manual pass on mobile (PWA install) — CLI still
+    pending at this point.
+11. CLI: `login`, `logout`, `add`, `ls`, `search`, `get`, `rm`,
+    `edit` (with `fsnotify`).
+12. Final end-to-end pass covering both PWA and CLI.
 
 ## 11. Deferred (v2+)
 
@@ -502,7 +506,7 @@ Session-by-session state. Read this section first when resuming.
     `pwa-maskable-512x512.png` generated from `favicon.svg` via `sips`
     (placeholders — replace with real artwork later).
   - `public/sqlite/.gitkeep` reserves the sql.js self-host directory
-    (filled in step 7).
+    (filled in step 6).
 - `.gitignore` extended with `bin/`, `node_modules/`, `web/dist/`,
   `data/`, `*.db*`, `web/*.tsbuildinfo`.
 
@@ -783,7 +787,7 @@ DBs.
     Bruno CLI's cookie jar is per-folder, so the entries folder
     would not see cookies from `auth/login`. The cookie auth path
     is exercised by `auth/refresh-cookie` (same middleware) and
-    will be retested end-to-end when the PWA lands in step 7+.
+    will be retested end-to-end when the PWA lands in step 6+.
 - `doc/bruno-api-tests/README.md`: added `entries/` section, swapp
   ed `api-test-entries` for the dependency note that `bru run`
   shares `vars:secret` / runtime env vars only within one invocation.
@@ -905,6 +909,47 @@ DBs.
   requests are the documented stateful auth tests
   (`login-deactivated` needs a deactivated user, `login-rate-
   limited` needs 5 prior failed attempts in the same minute).
+
+**Next**: step 5 of §10 — server embedded web assets, `/healthz`,
+`/version`, security headers (CSP, HSTS), request logging
+refinements. (Plan order has since been re-ordered: CLI is now step
+11, after the web work; see Session 6.)
+
+### Session 6 — reorder build steps, defer CLI
+
+**Status**: plan update, committed.
+
+**What changed**:
+
+- §10 renumbered: CLI moved from step 6 to step 11, after the full
+  web work. New order is server (1–5) → web (6–9) → web E2E (10) →
+  CLI (11) → final E2E (12). The end-to-end pass on mobile PWA now
+  happens before the CLI is built, so the API surface gets validated
+  by the web app first and the CLI lands against a stable contract.
+- Session 5's `**Next**` line updated to point at step 5 (server
+  embedded assets) and to flag that the order changed in this
+  session.
+- §0's "step (5|6|7)" references in the progress log and in the
+  Bruno README updated where the number shifted (sql.js dir fill →
+  step 6; PWA cookie-path retest → step 6+).
+
+**Decision rationale**:
+
+- Building the web client first keeps the API consumer honest:
+  if the contract is awkward to use from the browser (auth, sync,
+  error shapes), we catch it before committing to CLI ergonomics.
+- The CLI is a thin consumer of the same `/auth/*` + `/entries`
+  surface, so it has nothing to teach us about the API. Building
+  it after the web lets the CLI implementation focus on its own
+  concerns (config file, `$EDITOR` integration, fsnotify debounce)
+  without API churn.
+- One cost: the Bruno collection's `entries-cookie-create` request
+  stays untested at the CLI level (Bruno's per-folder cookie jar
+  still wouldn't share with auth/). That's deferred to the web
+  PWA smoke check in step 10, where a real browser exercises the
+  flow.
+
+**Smoke checks performed**: none — no code change.
 
 **Next**: step 5 of §10 — server embedded web assets, `/healthz`,
 `/version`, security headers (CSP, HSTS), request logging
