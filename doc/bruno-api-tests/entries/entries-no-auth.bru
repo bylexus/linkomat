@@ -1,0 +1,24 @@
+meta {
+  name: Entries — no auth (401)
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/entries
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 401
+  res.body.type: contains unauthorized
+  res.body.status: eq 401
+  res.body.title: isString
+}
+
+docs {
+  GET /entries with no Authorization header and no linkomat_auth
+  cookie. The auth middleware rejects with 401 unauthorized before the
+  handler is dispatched.
+}

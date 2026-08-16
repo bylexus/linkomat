@@ -1,0 +1,27 @@
+meta {
+  name: Entries — GET unknown id (404)
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{baseUrl}}/entries/99999999-0000-0000-0000-000000000000
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{lastAccessToken}}
+}
+
+assert {
+  res.status: eq 404
+  res.body.type: contains not-found
+  res.body.status: eq 404
+  res.body.title: isString
+}
+
+docs {
+  GET /entries/<id> for an id that doesn't exist in the user's DB
+  returns 404 not-found. Used independent of any other entry state.
+}

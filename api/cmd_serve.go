@@ -21,7 +21,9 @@ func newServeCmd() *cobra.Command {
 				return err
 			}
 			defer meta.Close()
-			srv := NewServer(cfg, meta)
+			userDBs := NewUserDBs(cfg)
+			defer userDBs.Close()
+			srv := NewServer(cfg, meta, userDBs)
 
 			go runRateLimitCleanup(srv.limiter)
 

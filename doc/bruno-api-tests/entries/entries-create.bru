@@ -1,0 +1,53 @@
+meta {
+  name: Entries — PUT new (Bearer auth)
+  type: http
+  seq: 4
+}
+
+put {
+  url: {{baseUrl}}/entries/01923456-7890-7abc-9def-0123456789ab
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{lastAccessToken}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "id": "01923456-7890-7abc-9def-0123456789ab",
+    "title": "Example",
+    "url": "https://example.com",
+    "note": "first create",
+    "tags": ["foo", "bar"]
+  }
+}
+
+script:post-response {
+  bru.setEnvVar("entryId", "01923456-7890-7abc-9def-0123456789ab");
+}
+
+assert {
+  res.status: eq 200
+  res.headers["cache-control"]: contains "no-store"
+  res.body.id: eq 01923456-7890-7abc-9def-0123456789ab
+  res.body.title: eq Example
+  res.body.url: eq https://example.com
+  res.body.note: eq "first create"
+  res.body.tags[0]: eq foo
+  res.body.tags[1]: eq bar
+  res.body.created_at: isString
+  res.body.updated_at: isString
+  res.body.deleted_at: isUndefined
+}
+
+docs {
+  PUT /entries/<id> with Authorization: Bearer creates a new entry
+  server-side. The body must include the matching id (or omit it); the
+  server stamps created_at and updated_at to the same instant and
+  returns the full entry.
+
+  Requires login.bru to have populated lastAccessToken first.
+}

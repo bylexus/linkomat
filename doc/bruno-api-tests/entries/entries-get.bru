@@ -1,0 +1,33 @@
+meta {
+  name: Entries — GET single (Bearer auth)
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/entries/{{entryId}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{lastAccessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.id: eq {{entryId}}
+  res.body.title: isString
+  res.body.url: isString
+  res.body.tags: isArray
+  res.body.created_at: isString
+  res.body.updated_at: isString
+}
+
+docs {
+  GET /entries/<id> with Authorization: Bearer returns the full entry
+  (including deleted_at if set). Returns 404 not-found for an unknown
+  id.
+
+  Requires entries-create.bru to have populated entryId.
+}

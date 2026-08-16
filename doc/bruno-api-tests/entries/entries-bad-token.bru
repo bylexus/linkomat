@@ -1,0 +1,28 @@
+meta {
+  name: Entries — bad token (401)
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/entries
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+}
+
+assert {
+  res.status: eq 401
+  res.body.type: contains invalid-token
+  res.body.status: eq 401
+  res.body.title: isString
+}
+
+docs {
+  GET /entries with a Bearer header whose token was never issued.
+  The auth middleware looks it up in the meta DB, finds no row, and
+  returns 401 invalid-token.
+}

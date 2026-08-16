@@ -1,0 +1,28 @@
+meta {
+  name: Entries — changed_since (Bearer auth)
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/entries?changed_since=2000-01-01T00:00:00Z
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{lastAccessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.entries: isArray
+  res.body.server_time: isString
+}
+
+docs {
+  GET /entries?changed_since=<RFC3339> returns rows with
+  updated_at > <cursor>. With a far-past cursor this returns every
+  row, including soft-deleted ones (deleted_at set). The client hides
+  tombstones from the UI per §6.2 step 5 of the plan.
+}

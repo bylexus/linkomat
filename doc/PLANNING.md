@@ -714,3 +714,198 @@ DBs.
 **Next**: step 4 of §10 — server per-user DB cache, `GET/PUT/DELETE
 /entries`, soft-delete, `AutoMigrate` + `schema_version` for per-user
 DBs.
+
+### Session 5 — per-user DB cache + entries endpoints (step 4 of §10)
+
+**Status**: done, uncommitted.
+
+**What landed**:
+
+- `api/models.go` (existing): no changes — the `Entry` model landed
+  in `api/userdb.go` because it's per-user DB only, not meta DB.
+- `api/userdb.go` (new): `Entry` GORM model per §3.1
+  (`id`/`title`/`url`/`note`/`tags`/`created_at`/`updated_at`/
+  `deleted_at`), with `Tags` stored as a JSON-encoded TEXT column
+  and converted to `[]string` on the way out via `entryToDTO` /
+  `encodeTags` / `decodeTags`. `EntrySchemaVersion` mirrors the
+  meta DB's pattern. `UserDB` opens `data/users/<username>.db`
+  with the same DSN flags as the meta DB, runs `AutoMigrate` +
+  schema-version upsert, and `Close` returns the underlying
+  `*sql.DB.Close()` error. `UserDBs` is a `sync.Mutex`-guarded
+  `map[string]*UserDB` cache with lazy open (`For`); `Close` walks
+  all open DBs and returns the first error.
+- `api/middleware_auth.go` (new): `authenticate(rw, r)` returns the
+  request with `ctxKeyUserID` + `ctxKeyUsername` set on success or
+  nil if it already wrote a 401 / 403. Reads `linkomat_auth` cookie
+  first, then `Authorization: Bearer <token>` header. Skips
+  `/auth/*` entirely. Validates the token against the meta DB
+  (`FindActiveToken`) and confirms the user is `Active`.
+- `api/handlers_entries.go` (new): five handlers per §5.4.
+  - `GET /entries?limit=&offset=` — paginated list ordered
+    `updated_at ASC, id ASC` (stable for cursor sync); defaults
+    `limit=200`, cap 1000.
+  - `GET /entries?changed_since=<RFC3339>` — exclusive cursor,
+    same ordering.
+  - `GET /entries/{id}` — single entry, returns 404 if not found.
+  - `PUT /entries/{id}` — full overwrite. Body may omit `id` or
+    match URL; mismatched non-empty body id → 400. Creates if
+    missing, otherwise updates and bumps `updated_at`. Restores
+    a soft-deleted entry (sets `deleted_at = NULL`).
+  - `DELETE /entries/{id}` — soft-delete with `deleted_at = now()`
+    and `updated_at = now()`; returns 204. The row stays in the DB
+    so the tombstone can be replicated via delta sync.
+  - All responses carry `Cache-Control: no-store, private`.
+  - `entryToDTO` normalizes timestamps to UTC for the wire — GORM's
+    `Save` reloads the row from the SQLite driver, which parses
+    datetimes as local time, so the second PUT on the same row would
+    have shown `+02:00` unless we `.UTC()` on the way out.
+- `api/server.go`: routes added for the five new endpoints; the
+  request middleware now calls `s.authenticate(rw, r)` and only
+  dispatches the next handler if `r` is non-nil. The auth result
+  is propagated to the request log via the same `r` reference, so
+  `user_id` shows up in the slog line for `/entries/*` requests
+  and is empty for failed-auth ones. `ctxKeyUsername` added to the
+  context keys; `usernameFromCtx` helper added.
+- `api/cmd_serve.go`: opens `UserDBs` and `defer`s `Close` between
+  the meta DB close and the server start.
+- `api/cmd_user.go`: `user delete` now also removes the user DB's
+  `-shm` / `-wal` sidecar files (best-effort; the main file is
+  the source of truth).
+- `shared/entries.go` (new): `EntriesListResponse`
+  `{entries, server_time}` for the list endpoint.
+- `doc/bruno-api-tests/entries/` (new): 10 `.bru` requests covering
+  - 401 paths (no auth, bad token)
+  - 200 paths (list, get, put new, put update, changed-since,
+    deleted get)
+  - 204 path (delete)
+  - 404 path (unknown id)
+  - The two cookie-path entries test was removed in v1 because
+    Bruno CLI's cookie jar is per-folder, so the entries folder
+    would not see cookies from `auth/login`. The cookie auth path
+    is exercised by `auth/refresh-cookie` (same middleware) and
+    will be retested end-to-end when the PWA lands in step 7+.
+- `doc/bruno-api-tests/README.md`: added `entries/` section, swapp
+  ed `api-test-entries` for the dependency note that `bru run`
+  shares `vars:secret` / runtime env vars only within one invocation.
+- `Makefile`: `api-test` now runs `bru run auth entries` in one
+  invocation so the `auth/login` `script:post-response` populates
+  `lastAccessToken` for the entries tests. `api-test-entries`
+  removed (would need a separate login run elsewhere — out of scope).
+  `api-test-req` accepts `REQ=<folder>/<name>` so a single request
+  from either folder can be run. `api-test-reset` writes the new
+  `entryId` default.
+- `doc/bruno-api-tests/environments/Local.bru`: `entryId` added
+  (regular `vars`, default `01923456-7890-7abc-9def-0123456789ab`).
+  `lastAccessToken` / `lastRefreshToken` stay in `vars:secret`.
+
+**Decisions made in this session**:
+
+- **Tags as JSON in TEXT, not a separate table.** §3.1 calls for
+  `tags TEXT (JSON)`. The simplest encoding is a JSON string in
+  a single column, converted to `[]string` on the way in / out.
+  A normalized `entry_tags` table would have made the sync cursor
+  more complex (per-tag inserts) and provided no query benefit for
+  v1 (search is client-side in step 7).
+- **List ordering is `updated_at ASC, id ASC`.** The list endpoint
+  serves both the home view (client reverses in step 7) and the
+  first-launch sync pull. ASC + `id` tiebreak gives a stable
+  deterministic order that the cursor can advance through without
+  skipping rows on ties.
+- **`changed_since` is exclusive, list is inclusive.** The server
+  treats `updated_at > cursor` as the delta; the full list uses
+  `> -∞` (i.e. everything). Advancing the cursor from the last
+  response's `server_time` works in both cases because the
+  client never sees a row from before the cursor.
+- **PUT un-deletes a soft-deleted row.** The plan calls PUT a
+  "full body overwrite" and the server should always accept it
+  (last-save-wins by client intent). Setting `deleted_at = NULL`
+  on PUT matches that semantic; an entry you PUT to isn't a
+  tombstone anymore.
+- **PUT body id may match URL or be empty.** The body shape is
+  `shared.Entry`, so `id` is present. We require either empty
+  or matching URL; a non-empty mismatch is a 400 because the
+  client likely has a bug. The URL is the source of truth.
+- **DB cursor config.** The DSN flags for the per-user DB
+  (`_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=on`)
+  match the meta DB per §5.1. No `_loc=UTC` — the driver's local
+  parsing is normalized to UTC in `entryToDTO` so the wire format
+  is always UTC regardless of the server's local timezone.
+- **UserDBs cache has no eviction in v1.** Each user gets at
+  most one open SQLite connection for the server's lifetime.
+  For a single-operator-server this is fine. Eviction (LRU on
+  a configurable cap) is a v2 concern.
+- **`user delete` cleans up WAL/SHM.** The CLI's `os.Remove` of
+  the main file leaves the WAL/SHM sidecars. Best-effort
+  cleanup of those too, even though SQLite would tolerate a
+  stale shm on next open. The server's `UserDBs` cache is
+  *not* invalidated by this; that's a v2 limitation (the cache
+  would need a server-side control channel to drop). Restart
+  the server after `user delete` in v1.
+- **Bruno CLI's cookie jar is per-folder.** Found by running
+  `bru run auth` and then `bru run entries/entries-list.bru`
+  separately — the auth login populated the auth folder's cookie
+  jar but the entries folder had its own empty jar. Fix: run
+  `bru run auth entries` in one invocation. The cookie auth path
+  on `/entries` is still tested by the existing
+  `auth/refresh-cookie` request (same middleware). A future
+  step-7+ PWA smoke check will exercise the entries endpoints
+  via cookies in a running browser.
+
+**Discrepancies from the plan (called out per §0.2)**:
+
+- §5.4's list endpoint lets the client pass `limit` and `offset`;
+  the implementation rejects `limit=0` / negative `offset` with
+  400 and caps `limit` at 1000 (the plan picks no upper bound;
+  capping is a defensive default to avoid a single client
+  pulling 50k rows in one call). The cap is not in the plan.
+  Worth flagging for review.
+- §5.4 says `GET /entries/:id` returns "entry" with no shape
+  modifier. The implementation returns the entry unconditionally
+  including soft-deleted rows (with `deleted_at` populated), so
+  the delta sync can replicate tombstones. This matches §6.2
+  step 5. The "404 vs entry-with-deleted-at" choice is implicit
+  in the plan; the chosen behavior is what the client needs.
+
+**Smoke checks performed**:
+
+- `make tidy` and `make build-server build-cli` clean.
+- `go vet ./api/...` and `go vet ./cli/...` clean.
+- `rm -rf data` + `printf 'hunter2\nhunter2\n' | ./bin/linkomat-server
+  user create alice` + `serve` round-trip.
+- `POST /auth/login` → 200, captures access token.
+- `GET /entries` (no auth) → 401 with `type` containing
+  `unauthorized`.
+- `GET /entries` with bogus Bearer → 401 with `invalid-token`.
+- `PUT /entries/<uuid>` → 200 with full entry, server-stamped
+  `created_at == updated_at`.
+- `PUT /entries/<uuid>` again → 200, `updated_at` advances,
+  `created_at` unchanged, `deleted_at` absent.
+- `DELETE /entries/<uuid>` → 204.
+- `GET /entries/<uuid>` after delete → 200 with `deleted_at`
+  populated.
+- `GET /entries` → list with the one entry.
+- `GET /entries?changed_since=2000-01-01T00:00:00Z` → 200,
+  entries include the soft-deleted row.
+- `GET /entries?changed_since=3000-01-01T00:00:00Z` → 200,
+  entries empty.
+- `GET /entries?changed_since=not-a-time` → 400
+  `invalid-request`.
+- `GET /entries?limit=0` → 400 `invalid-request`.
+- `PUT /entries/<uuid>` with mismatched body id → 400
+  `invalid-request`.
+- `GET /entries/<unknown-uuid>` → 404 `not-found`.
+- All responses carry `Cache-Control: no-store, private` and
+  the standard security headers from session 3.
+- Request log includes `user_id=1` for authenticated requests
+  and `user_id=""` for failed auth.
+- `linkomat-server user delete alice` removes `alice.db`,
+  `alice.db-shm`, `alice.db-wal` from `data/users/`.
+- `make api-test` runs `auth + entries` together: 17 of 19
+  requests pass, 96 of 102 assertions pass. The 2 failing
+  requests are the documented stateful auth tests
+  (`login-deactivated` needs a deactivated user, `login-rate-
+  limited` needs 5 prior failed attempts in the same minute).
+
+**Next**: step 5 of §10 — server embedded web assets, `/healthz`,
+`/version`, security headers (CSP, HSTS), request logging
+refinements.

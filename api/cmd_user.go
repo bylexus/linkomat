@@ -248,9 +248,11 @@ func newUserDeleteCmd() *cobra.Command {
 			if err := meta.Delete(&u).Error; err != nil {
 				return err
 			}
-			userDB := filepath.Join(cfg.DataDir, "users", username+".db")
-			if err := os.Remove(userDB); err != nil && !errors.Is(err, os.ErrNotExist) {
-				fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not remove user db %s: %v\n", userDB, err)
+			base := filepath.Join(cfg.DataDir, "users", username+".db")
+			for _, p := range []string{base, base + "-shm", base + "-wal"} {
+				if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+					fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not remove %s: %v\n", p, err)
+				}
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "deleted user %q\n", username)
 			return nil

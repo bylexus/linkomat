@@ -1,0 +1,30 @@
+meta {
+  name: Entries — list (Bearer auth)
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/entries
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{lastAccessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.headers["cache-control"]: contains "no-store"
+  res.body.entries: isArray
+  res.body.server_time: isString
+}
+
+docs {
+  GET /entries with Authorization: Bearer <lastAccessToken>. The
+  response is a shared.EntriesListResponse with the entries array
+  (possibly empty) and server_time used as the cursor for delta sync.
+
+  Requires login.bru to have populated lastAccessToken first.
+}

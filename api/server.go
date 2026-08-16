@@ -17,20 +17,23 @@ type ctxKey int
 const (
 	ctxKeyRequestID ctxKey = iota
 	ctxKeyUserID
+	ctxKeyUsername
 	ctxKeyRemoteIP
 )
 
 type Server struct {
 	cfg     *Config
 	meta    *MetaDB
+	userDBs *UserDBs
 	limiter *loginLimiter
 	mux     *http.ServeMux
 }
 
-func NewServer(cfg *Config, meta *MetaDB) *Server {
+func NewServer(cfg *Config, meta *MetaDB, userDBs *UserDBs) *Server {
 	s := &Server{
 		cfg:     cfg,
 		meta:    meta,
+		userDBs: userDBs,
 		limiter: newLoginLimiter(),
 		mux:     http.NewServeMux(),
 	}
@@ -42,6 +45,10 @@ func (s *Server) routes() {
 	s.mux.Handle("POST /auth/login", http.HandlerFunc(s.handleLogin))
 	s.mux.Handle("POST /auth/refresh", http.HandlerFunc(s.handleRefresh))
 	s.mux.Handle("POST /auth/logout", http.HandlerFunc(s.handleLogout))
+	s.mux.Handle("GET /entries", http.HandlerFunc(s.handleEntriesList))
+	s.mux.Handle("GET /entries/{id}", http.HandlerFunc(s.handleEntryGet))
+	s.mux.Handle("PUT /entries/{id}", http.HandlerFunc(s.handleEntryPut))
+	s.mux.Handle("DELETE /entries/{id}", http.HandlerFunc(s.handleEntryDelete))
 }
 
 func (s *Server) Handler() http.Handler {
@@ -68,12 +75,19 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("X-Request-Id", reqID)
 		rw := &statusRecorder{ResponseWriter: w, status: 200}
-		next.ServeHTTP(rw, r.WithContext(ctx))
+		ar := s.authenticate(rw, r.WithContext(ctx))
+		if ar != nil {
+			next.ServeHTTP(rw, ar)
+		}
+		userID := ""
+		if ar != nil {
+			userID = userIDFromCtx(ar.Context())
+		}
 		slog.Info("request",
 			slog.String("method", r.Method),
 			slog.String("path", r.URL.Path),
 			slog.Int("status", rw.status),
-			slog.String("user_id", userIDFromCtx(r.Context())),
+			slog.String("user_id", userID),
 			slog.Int64("duration_ms", time.Since(start).Milliseconds()),
 			slog.String("request_id", reqID),
 			slog.String("remote_ip", ip),
@@ -133,6 +147,11 @@ func userIDFromCtx(ctx context.Context) string {
 		return ""
 	}
 	return strconv.FormatUint(uint64(v), 10)
+}
+
+func usernameFromCtx(ctx context.Context) string {
+	v, _ := ctx.Value(ctxKeyUsername).(string)
+	return v
 }
 
 func requestIDFromCtx(ctx context.Context) string {

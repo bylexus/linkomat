@@ -1,0 +1,29 @@
+meta {
+  name: Entries — GET after delete (deleted_at visible)
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{baseUrl}}/entries/{{entryId}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{lastAccessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.id: eq {{entryId}}
+  res.body.deleted_at: isString
+}
+
+docs {
+  After DELETE, GET /entries/<id> still returns 200 with the entry
+  body — this is intentional, so delta sync can replicate the
+  tombstone. The client hides entries with deleted_at set from the UI.
+
+  Run after entries-delete.bru.
+}

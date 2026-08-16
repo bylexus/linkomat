@@ -1,0 +1,27 @@
+meta {
+  name: Entries — DELETE (Bearer auth)
+  type: http
+  seq: 8
+}
+
+delete {
+  url: {{baseUrl}}/entries/{{entryId}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{lastAccessToken}}
+}
+
+assert {
+  res.status: eq 204
+  res.headers["cache-control"]: contains "no-store, private"
+}
+
+docs {
+  DELETE /entries/<id> soft-deletes the entry. The server sets
+  deleted_at = now() and updated_at = now(); returns 204 No Content.
+  The row stays in the DB so the tombstone can be replicated to
+  clients via delta sync.
+}

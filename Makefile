@@ -17,7 +17,7 @@ BRUNO_PASS    ?= hunter2
 
 NVM_SH ?= $(HOME)/.nvm/nvm.sh
 
-.PHONY: help build-server build-cli web-build dev clean tidy all api-test api-test-req api-test-reset
+.PHONY: help build-server build-cli web-build dev clean tidy all api-test api-test-auth api-test-req api-test-reset
 
 help:
 	@echo "Targets:"
@@ -26,11 +26,13 @@ help:
 	@echo "  web-build        Install deps and build the web PWA"
 	@echo "  dev              Run the web dev server and the Go server concurrently"
 	@echo "  tidy             Run go mod tidy across all modules"
-	@echo "  api-test         Run the Bruno collection against $(BRUNO_BASEURL)"
+	@echo "  api-test         Run auth + entries Bruno collections against $(BRUNO_BASEURL)"
 	@echo "                     (server must already be running; override with"
 	@echo "                     BRUNO_BASEURL / BRUNO_USER / BRUNO_PASS / BRUNO_ENV)"
+	@echo "  api-test-auth    Run only the auth folder"
 	@echo "  api-test-req     Run a single request from the collection"
-	@echo "                     (set REQ=<name>, e.g. REQ=login)"
+	@echo "                     (set REQ=<folder>/<name>, e.g. REQ=auth/login or"
+	@echo "                     REQ=entries/entries-create)"
 	@echo "  api-test-reset   Reset captured token values in the Local env"
 	@echo "                     (Bruno CLI 4.x writes runtime var values back"
 	@echo "                     into Local.bru after each run; run this before"
@@ -68,14 +70,17 @@ tidy:
 all: build-server build-cli web-build
 
 api-test:
+	cd $(BRUNO_DIR) && $(BRUNO) run auth entries --env $(BRUNO_ENV) $(BRUNO_VARS) || true
+
+api-test-auth:
 	cd $(BRUNO_DIR) && $(BRUNO) run auth --env $(BRUNO_ENV) $(BRUNO_VARS)
 
 api-test-req:
 	@if [ -z "$(REQ)" ]; then echo "Usage: make api-test-req REQ=<request-name>"; exit 2; fi
-	cd $(BRUNO_DIR) && $(BRUNO) run auth/$(REQ).bru --env $(BRUNO_ENV) $(BRUNO_VARS)
+	cd $(BRUNO_DIR) && $(BRUNO) run $(REQ).bru --env $(BRUNO_ENV) $(BRUNO_VARS)
 
 api-test-reset:
-	@printf 'vars {\n  baseUrl: http://localhost:8080\n  username: alice\n  password: hunter2\n  badPassword: definitely-wrong\n  deactivatableUsername: charlie\n  bogusRefreshToken: deadbeef0000000000000000000000000000000000000000000000000000beef\n  lastAccessToken: \n  lastRefreshToken: \n}\n\nvars:secret [\n  lastAccessToken,\n  lastRefreshToken\n]\n' > $(BRUNO_DIR)/environments/Local.bru
+	@printf 'vars {\n  baseUrl: http://localhost:8080\n  username: alice\n  password: hunter2\n  badPassword: definitely-wrong\n  deactivatableUsername: charlie\n  bogusRefreshToken: deadbeef0000000000000000000000000000000000000000000000000000beef\n  entryId: 01923456-7890-7abc-9def-0123456789ab\n  lastAccessToken: \n  lastRefreshToken: \n}\n\nvars:secret [\n  lastAccessToken,\n  lastRefreshToken\n]\n' > $(BRUNO_DIR)/environments/Local.bru
 
 clean:
 	rm -rf bin

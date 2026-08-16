@@ -1,0 +1,43 @@
+meta {
+  name: Entries — PUT update (Bearer auth)
+  type: http
+  seq: 6
+}
+
+put {
+  url: {{baseUrl}}/entries/{{entryId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{lastAccessToken}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "id": "{{entryId}}",
+    "title": "Example (updated)",
+    "url": "https://example.com",
+    "note": "note updated",
+    "tags": ["foo", "bar", "baz"]
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.title: eq "Example (updated)"
+  res.body.note: eq "note updated"
+  res.body.tags[0]: eq foo
+  res.body.tags[1]: eq bar
+  res.body.tags[2]: eq baz
+  res.body.deleted_at: isUndefined
+}
+
+docs {
+  PUT /entries/<id> again — overwrites the existing entry. Server
+  stamps a new updated_at; created_at is preserved.
+
+  Requires entries-create.bru to have populated entryId.
+}
