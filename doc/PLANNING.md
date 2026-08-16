@@ -717,7 +717,7 @@ DBs.
 
 ### Session 5 — per-user DB cache + entries endpoints (step 4 of §10)
 
-**Status**: done, uncommitted.
+**Status**: done, committed (`0c5bd1f`).
 
 **What landed**:
 
