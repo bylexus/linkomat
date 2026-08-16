@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 export const CREATE_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS schema_version (
@@ -46,6 +46,11 @@ export const CREATE_SCHEMA_SQL = `
       REPLACE(REPLACE(REPLACE(REPLACE(new.tags, '[', ' '), ']', ' '), '"', ' '), ',', ' ')
     );
   END;
+  CREATE TABLE IF NOT EXISTS sync_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    cursor TEXT NOT NULL DEFAULT ''
+  );
+  INSERT OR IGNORE INTO sync_state (id, cursor) VALUES (1, '');
   INSERT OR REPLACE INTO schema_version (version) VALUES (${CURRENT_SCHEMA_VERSION});
 `;
 

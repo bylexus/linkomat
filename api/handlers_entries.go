@@ -26,6 +26,8 @@ func (s *Server) handleEntriesList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	serverTime := time.Now().UTC()
+
 	q := r.URL.Query()
 	if cs := q.Get("changed_since"); cs != "" {
 		t, err := time.Parse(time.RFC3339, cs)
@@ -38,7 +40,7 @@ func (s *Server) handleEntriesList(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "internal", "Could not list entries.", err.Error())
 			return
 		}
-		writeEntriesList(w, rows)
+		writeEntriesList(w, rows, serverTime)
 		return
 	}
 
@@ -69,7 +71,7 @@ func (s *Server) handleEntriesList(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", "Could not list entries.", err.Error())
 		return
 	}
-	writeEntriesList(w, rows)
+	writeEntriesList(w, rows, serverTime)
 }
 
 func (s *Server) handleEntryGet(w http.ResponseWriter, r *http.Request) {
@@ -187,14 +189,14 @@ func (s *Server) handleEntryDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func writeEntriesList(w http.ResponseWriter, rows []Entry) {
+func writeEntriesList(w http.ResponseWriter, rows []Entry, serverTime time.Time) {
 	entries := make([]shared.Entry, 0, len(rows))
 	for i := range rows {
 		entries = append(entries, entryToDTO(&rows[i]))
 	}
 	writeJSON(w, http.StatusOK, shared.EntriesListResponse{
 		Entries:    entries,
-		ServerTime: time.Now().UTC(),
+		ServerTime: serverTime,
 	})
 }
 

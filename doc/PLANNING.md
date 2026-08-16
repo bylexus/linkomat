@@ -312,7 +312,7 @@ revoked.
 ### 6.3 Reachability
 
 - Web client polls `navigator.onLine` and `GET /healthz` every 10 s.
-- Only when both report "online" does the sync worker run.
+- Only when both report "online" does the sync engine run.
 - Retry policy on push failures: exponential backoff with jitter
   (1s → 60s cap). Reset on first success.
 - Persistent failure > 5 min surfaces a "retry now" button.
@@ -372,7 +372,14 @@ overwrite without merge UI.
   `url`, `tags` chips, save-on-blur, delete button.
 - `/settings` — username display, logout button, version info.
 
-### 7.6 Sync Worker
+### 7.6 Sync Engine
+
+**Not a Worker.** Despite the historical name "sync worker", the engine
+(`web/src/sync/engine.ts`) runs on the **main thread** as a module-level
+singleton. Nothing in the app constructs a `Worker`, and the workbox
+Service Worker sets `runtimeCaching: []`, so `/entries` and `/healthz`
+are never intercepted by it. All sync traffic is ordinary `fetch()` from
+`web/src/api/client.ts` and is fully visible in the DevTools Network tab.
 
 - One in-flight sync job per session.
 - Triggered by:
@@ -380,6 +387,8 @@ overwrite without merge UI.
   - `online` event.
   - Visibility change to visible.
   - Interval (5 min default) when online.
+  - Local DB change (debounced 2 s) — a save or delete pushes shortly
+    after the edit instead of waiting for the interval.
   - Manual "sync now" button.
 - Drains the dirty queue serially, FIFO. Each entry shown with a tiny
   status dot: green (synced), yellow (unsynced), spinner (syncing).
@@ -491,11 +500,13 @@ the web app — the primary v1 client — drives the design first.
 5. Server: embedded web assets, `/healthz`, `/version`, security
    headers, request logging.
 6. Web: PWA scaffold, sql.js wrapper, OPFS persistence, integrity
-   check. 
-7. Web: home view + virtualized list + search.
+   check. **Done**
+7. Web: home view + virtualized list + search. **Done**
 8. Web: note editing view + save-on-blur + delete. **Done**
-9. Web: sync worker (dirty queue, delta pull, full pull on first
-   launch, retry/backoff, status UI).
+9. Web: sync engine (dirty queue, delta pull, full pull on first
+   launch, retry/backoff, status UI). Split into 9.1 auth + login view
+   (**done**), 9.2 sync engine + cursor + reachability (**done**),
+   9.3 status UI + backoff + retry (**next — see §13**).
 10. End-to-end manual pass on mobile (PWA install) — CLI still
     pending at this point.
 11. CLI: `login`, `logout`, `add`, `ls`, `search`, `get`, `rm`,
@@ -992,13 +1003,45 @@ UI + backoff). Sub-steps approved.
 
 **Next**: step 9.2 of §10 — sync worker + cursor + reachability.
 
+### Session 13 — web sync engine (step 9.2 of §10)
+**Status**: done, all sub-steps reviewed and accepted 2026-08-16.
+
+Step 9.2 landed in one implementation pass followed by a fix round
+(9.2a–9.2f) after manual testing found the sync silently applying
+nothing. See §13 → Step 9.2 for the full record, including the two
+traps worth remembering:
+
+- **sql.js rejects `undefined` bind parameters** (only `null` maps to
+  SQL NULL). A Go DTO with `json:"…,omitempty"` on a nil pointer omits
+  the key entirely, which arrives as `undefined` and throws
+  `Wrong API use : tried to bind a value of an unknown type`.
+- **Do not expose a Vue state snapshot for debugging.** `getSyncState()`
+  returned `state.value`, and the dev global captured it once, so every
+  console reading was frozen at login time and actively misleading.
+
+**Files added**: `web/src/api/entries.ts`, `web/src/state/sync.ts`,
+`web/src/sync/reachability.ts`, `web/src/sync/engine.ts`.
+
+**Files modified**: `web/src/db/schema.ts` (schema v3 + `sync_state`),
+`web/src/db/sqlite.ts` (cursor / dirty-queue / server-apply methods),
+`web/src/main.ts`, `web/src/sql.js.d.ts`, `shared/entry.go`,
+`api/handlers_entries.go`, `doc/bruno-api-tests/entries/entries-create.bru`,
+`doc/bruno-api-tests/entries/entries-update.bru`.
+
+**Smoke checks**: `make build-server-expose-dev` clean;
+`make api-test` baseline `24/25 · 126/129`; full manual acceptance run
+per §13 Step 9.2 passed.
+
+**Next**: step 9.3 of §10 — status UI, backoff, retry. §13 → Step 9.3
+carries the hand-off context.
 ---
 
-## 13. Step 9 Plan — Web sync worker
+## 13. Step 9 Plan — Web sync engine
 
 **Ticket/Source:** doc/PLANNING.md §10 step 9
 **Branch:** none
-**Status:** in progress (9.1 done)
+**Status:** in progress — 9.1 and 9.2 done and reviewed; **9.3 is the next
+step** (status UI, backoff, retry).
 
 ### Goal
 Wire the local sql.js DB to the server: auth flow, periodic sync, dirty-queue
@@ -1012,16 +1055,16 @@ push failures, and status UI.
 - API client with single in-flight refresh on 401 (per §7.4).
 - Sync state (cursor, pending count, online, syncing, last error,
   persistentFailure).
-- Sync worker: push dirty FIFO; delta pull (single `changed_since` call);
+- Sync engine: push dirty FIFO; delta pull (single `changed_since` call);
   full pull on first launch (paginated `limit=200&offset=0` until short page).
 - Reachability: `navigator.onLine` + `/healthz` poll every 10 s (§6.3).
 - Triggers: app start, `online` event, visibility change, 5 min interval,
-  manual "sync now" (§7.6).
+  local DB change (2 s debounce), manual "sync now" (§7.6).
 - Backoff with jitter (1 s → 60 s cap) on push failures; reset on success.
 - "Retry now" button after 5 min continuous failure.
 - Status UI: pending-count chip in home header + per-row status dot
   (green / yellow / spinner).
-- Dev-mode global `__linkomatSync` exposing the sync worker for manual
+- Dev-mode global `__linkomatSync` exposing the sync engine for manual
   inspection.
 
 **Out of scope:**
@@ -1033,7 +1076,9 @@ push failures, and status UI.
   per §6.4). Delta pull overwrites local dirty rows including dirty flags.
 
 ### Decision log
-- **Sub-step breakdown:** 3 sub-steps (9.1 auth, 9.2 sync worker, 9.3 UI).
+- **Sub-step breakdown:** 3 sub-steps (9.1 auth, 9.2 sync engine, 9.3 UI).
+  9.2 additionally needed a fix round (9.2a–9.2f) after manual testing;
+  those are folded into the Step 9.2 record below.
 - **Local DB per user:** `linkomat.<username>.db` in OPFS. Username from
   `localStorage` key `linkomat.current_username`. Logout clears the
   localStorage key but leaves the OPFS file in place (next login as the
@@ -1043,7 +1088,7 @@ push failures, and status UI.
   use `GET /entries?changed_since=<cursor>`.
 - **Auth state detection:** implicit via the first sync attempt. No
   `/whoami` endpoint. In 9.1, a minimal one-shot `GET /entries?limit=1`
-  probe stands in for the worker; in 9.2 the sync worker takes over.
+  probe stands in for the engine; in 9.2 the sync engine takes over.
 - **Sync push for soft-deleted entries:** send `DELETE /entries/:id`
   (not `PUT`). Local rows with `deleted_at` set are pushed as
   DELETE; others are PUT. 404 from DELETE is treated as success.
@@ -1053,6 +1098,59 @@ push failures, and status UI.
   pending count chip in the home header next to the search bar.
 - **Testing strategy:** manual smoke checks per sub-step. No automated
   tests in v1 (§1).
+- **`deleted_at` null contract (Session 15):** fixed on **both** sides —
+  the server drops `omitempty` so the key is always present, and the
+  client binds `entry.deleted_at ?? null`. — *Rationale:* the explicit
+  wire contract documents the intent for the CLI too, and the client-side
+  guard means the local DB layer never trusts the JSON shape again.
+- **Bruno assertions for the new contract (Session 15):** `entries-create`
+  and `entries-update` change `deleted_at: isUndefined` to `isNull`
+  rather than dropping the assertion. — *Rationale:* keeps the coverage
+  and makes the suite document the new contract.
+- **Dev-global sync state (Session 15):** `__linkomatSync.state` exposes
+  the reactive `Ref`; the console idiom is `__linkomatSync.state.value`.
+  — *Rationale:* matches `__linkomatSync.reachability.value`, which
+  already worked that way; the previous snapshot froze at login and
+  misled a whole debugging session.
+- **`lastSkipReason` (Session 15):** `syncOnce()`'s four early returns
+  record why they skipped (`in-flight` / `no-username` / `offline` /
+  `db-not-ready`); cleared on a successful cycle. — *Rationale:* the
+  silent returns were the main reason the failure was opaque; 9.3's
+  status chip can read the field too.
+- **Batch apply (Session 15):** `applyServerEntries(entries[])` does one
+  transaction, one `persist()`, one `DB_CHANGE_EVENT`. — *Rationale:*
+  per-entry `persist()` exported the whole database once per row.
+  `clearDirty()` deliberately keeps its per-entry persist so a crash
+  mid-push does not replay accepted writes.
+- **UPDATE-or-INSERT instead of `INSERT OR REPLACE` (Session 15):**
+  — *Rationale:* REPLACE does not fire the `AFTER DELETE` trigger
+  (recursive triggers off) and reallocates the rowid, orphaning
+  `entries_fts` docids on every sync.
+- **Push on local save (Session 15):** a local DB change schedules a
+  `syncOnce()` debounced by 2 s, added as a sixth trigger in §7.6.
+  — *Rationale:* save-on-blur editing produced no network traffic for up
+  to 5 minutes, which read as a broken sync. Debounced rather than
+  immediate so one editing session coalesces into a single push instead
+  of one per blurred field.
+- **Debounce loop suppression (Session 15):** `onDbChange()` skips
+  scheduling while `syncInFlight`; `syncOnce()` re-arms only on a
+  *successful* cycle that still has dirty rows. — *Rationale:* the sync
+  path dispatches `DB_CHANGE_EVENT` itself, so without the first rule
+  every cycle would schedule the next. Gating the re-arm on success
+  avoids a 2-second retry loop while the server is down; backoff is
+  9.3's job.
+- **`sync/worker.ts` → `sync/engine.ts` (Session 15):** — *Rationale:*
+  the module runs on the main thread and constructs no `Worker`; the name
+  sent the developer looking for a worker's network traffic that never
+  existed. §7.6 now states the threading model explicitly.
+- **Sync tracing declined (Session 15):** no `console.debug` cycle
+  logging and no ring buffer. — *Rationale:* the Network tab plus
+  `__linkomatSync.state.value` is sufficient now that the state ref is
+  live and skips are labelled.
+- **`server_time` stamped before the query (Session 15):** — *Rationale:*
+  stamping after the query loses any entry written in the gap, because
+  `changed_since` is exclusive. Re-pulling a row already held is
+  harmless; the apply path is idempotent.
 
 ### Steps
 
@@ -1124,71 +1222,143 @@ push failures, and status UI.
     placement. The plan's `/settings` route (with username display,
     logout, version) is a separate step.
 
-#### Step 9.2 — Sync worker, cursor, reachability
-- **Status:** open
-- **What:**
-  - `web/src/db/schema.ts` — add `sync_state` table (single row, `cursor`).
-    Bump `CURRENT_SCHEMA_VERSION` to 3.
-  - `web/src/db/sqlite.ts` — `getCursor()`, `setCursor(c)`; `listDirtyEntries()`.
+#### Step 9.2 — Sync engine, cursor, reachability
+- **Status:** done (reviewed 2026-08-16)
+- **What landed:**
+  - `web/src/db/schema.ts` — `CURRENT_SCHEMA_VERSION = 3`; `sync_state`
+    table (single row, `id = 1`, `cursor` TEXT).
+  - `web/src/db/sqlite.ts` — `getCursor()`, `setCursor()`,
+    `listDirtyEntries()` (FIFO by `local_dirty_at`), `countDirtyEntries()`,
+    `applyServerEntries(entries[])` / `applyServerEntry(entry)`,
+    `clearDirty(id, serverUpdatedAt)`. `ServerEntry` type exported.
   - `web/src/api/entries.ts` — `listEntries({ limit, offset, changed_since })`,
-    `getEntry(id)`, `putEntry(id, body)`, `deleteEntry(id)`. Map DTO times
-    to ISO strings.
-  - `web/src/sync/reachability.ts` — `useReachability()` returns a
-    reactive `online` ref. Polls `navigator.onLine` + `/healthz` every
-    10 s. Honors `online` / `offline` window events.
-  - `web/src/state/sync.ts` — reactive sync state ref:
-    `{ online, syncing, pendingCount, lastError, lastSyncAt,
-      persistentFailure }`. Action API: `syncNow()`, `clearError()`.
-  - `web/src/sync/worker.ts` — `useSync()` returning the worker.
-    `sync()` does: skip if reachability offline; skip if already syncing;
-    otherwise push dirty FIFO (one in-flight push), then pull (full pull
-    if cursor empty, else delta pull), then update cursor + clear dirty
-    flags. Keeps one in-flight sync job. Exposes `__linkomatSync` in dev.
-  - `web/src/main.ts` — start the sync worker; trigger on app start.
-  - `web/src/App.vue` — wire `online` event, visibility change, 5 min
-    interval, and manual trigger (button in 9.3).
-- **Acceptance criteria:**
-  - `npm run build` clean.
-  - `make build-server` clean.
-  - `make api-test` baseline unchanged.
-  - Manual: first launch (fresh OPFS) → full pull, server entries
-    appear in HomeView.
-  - Manual: create local entry → sync → entry appears on server.
-  - Manual: edit entry on server → sync → entry updates locally.
-  - Manual: delete entry on server → sync → entry disappears from
-    HomeView.
-  - Manual: kill server → reachability flips false, sync pauses; restart
-    server → reachability flips true, sync resumes.
-  - Manual: `__linkomatSync.syncNow()` runs a sync cycle on demand.
-- **Notes:** (filled in after implementation)
+    `putEntry(id, body)`, `deleteEntry(id)`, all returning `ApiResult`.
+  - `web/src/sync/reachability.ts` — module-level `online` ref; polls
+    `navigator.onLine` + `/healthz` (5 s timeout) every 10 s; honours
+    `online` / `offline` window events.
+  - `web/src/state/sync.ts` — reactive `SyncState` (`online`, `syncing`,
+    `pendingCount`, `lastError`, `lastSkipReason`, `lastSyncAt`,
+    `persistentFailure`). `syncStateRef()` returns the **Ref**;
+    `useSyncState()` a computed view; `setSyncState(patch)` to update.
+  - `web/src/sync/engine.ts` — `initSync()` singleton. `syncOnce()` runs
+    push-then-pull; `__linkomatSync` exposed in dev builds with
+    `syncNow`, `reachability`, `state`.
+  - `shared/entry.go`, `api/handlers_entries.go` — see the two server
+    changes under **Decisions** below.
+  - `web/src/main.ts` — calls `initSync()` before mount.
+
+- **Sub-steps** (all reviewed 2026-08-16): 9.2a instruments · 9.2b
+  `deleted_at` contract · 9.2c batch apply + stable rowid · 9.2d server
+  cursor race · 9.2f push-on-save + rename · 9.2e full acceptance run.
+
+- **The failure that cost a session, and why:** after the first
+  implementation pass the HomeView stayed empty while the server held
+  entries. Root cause: `shared.Entry.DeletedAt` was
+  `json:"deleted_at,omitempty"`, so a non-deleted entry serialised
+  **without** the key; that arrived as `undefined` and **sql.js throws on
+  `undefined` bind parameters** (only `null` maps to SQL NULL) —
+  `Wrong API use : tried to bind a value of an unknown type (undefined).`
+  The pull threw on its first row and `syncOnce()`'s catch swallowed it.
+  Diagnosis was blocked because `getSyncState()` returned a plain object
+  *snapshot* that the dev global captured once at login, so every console
+  reading was frozen and misleading. **Both traps are easy to
+  re-introduce — do not expose a Vue state snapshot for debugging, and do
+  not trust an optional JSON key to arrive as `null`.**
+
+- **Decisions taken during the step:** all recorded in the **Decision log**
+  above (the `deleted_at` contract, `server_time` stamping, UPDATE-or-INSERT,
+  batch apply, the 2 s push debounce and its loop suppression, and the
+  `worker` → `engine` rename). Two that are engine-local:
+  - Push semantics: rows with `deleted_at` set go out as
+    `DELETE /entries/:id` (404 treated as success); all others as
+    `PUT /entries/:id`. `applyServerEntry` overwrites local dirty flags
+    (§6.4 last-save-wins by server).
+  - `waitForDbReady()` watches the LocalDb state ref with a 30 s timeout;
+    returns `null` on `error` / `opfs-unavailable`.
+
+- **Verified:** `make build-server-expose-dev` clean; `make api-test`
+  baseline `24/25 · 126/129` (only the documented stateful
+  `login-rate-limited` failure). Manual: first launch full pull with
+  cursor saved; local create → `pendingCount` 1 → push → 0 and present on
+  the server; server-side edit and delete replicate down; server kill →
+  `online: false` and `lastSkipReason: "offline"`, restart → resumes
+  within the 10 s poll; save → one `PUT` within ~2 s with no repeating
+  `/entries` traffic afterwards; logout/login re-attaches listeners.
 
 #### Step 9.3 — Status UI, backoff, retry
-- **Status:** open
+- **Status:** open — **this is the next step. Start here.**
+
 - **What:**
-  - `web/src/sync/worker.ts` — backoff with jitter on push failures:
-    delay = `min(60s, 2^attempt) + jitter ±20%`; reset on first success.
-    Timer tracking `firstFailureAt`; `persistentFailure = now -
-    firstFailureAt > 5 min`.
-  - `web/src/state/sync.ts` — expose `persistentFailure` flag.
-  - `web/src/views/HomeView.vue` — header chip area: pending count
-    (`pending: N` when `pendingCount > 0`), sync state label
+  - `web/src/sync/engine.ts` — backoff with jitter on push failures:
+    delay = `min(60s, 2^attempt * 1s)` ± 20 % jitter; reset on first
+    success. Track `firstFailureAt`; set `persistentFailure = true` once
+    `now - firstFailureAt > 5 min`.
+  - `web/src/state/sync.ts` — `persistentFailure` already exists in
+    `SyncState`; wire it from the backoff timer rather than from the
+    current `catch` block (which sets it on the first failure — that is
+    a 9.2 placeholder and **must be corrected** in 9.3).
+  - `web/src/views/HomeView.vue` — header chip area next to the search
+    bar: `pending: N` when `pendingCount > 0`, plus a state label
     (`online` / `offline` / `syncing` / `error`). "Retry now" button
-    shown when `persistentFailure`. Per-row status dot in top-right:
-    green (synced), yellow (dirty), spinner (syncing).
-  - `web/src/views/EditView.vue` — header chip echo of pending count
-    + sync state for the current entry.
+    shown when `persistentFailure`. Per-row status dot in the row's
+    top-right: green (synced, `local_dirty_at IS NULL`), yellow (dirty),
+    spinner (syncing).
+  - `web/src/views/EditView.vue` — header echo of the pending count and
+    sync state for the current entry.
+
 - **Acceptance criteria:**
-  - `npm run build` clean.
-  - `make build-server` clean.
-  - Manual: create 3 entries offline → pending count shows 3; come
-    online → spinner during push, drops to 0.
-  - Manual: kill server → push fails, backoff visible (chip shows
-    `error`), after 5 min the "Retry now" button appears.
-  - Manual: per-row dot colors: green for synced, yellow for dirty,
-    spinner during sync.
-  - Manual: edit existing entry → dot turns yellow; sync → returns to
-    green.
+  - `npm run build` / `make build-server` clean.
+  - `make api-test` baseline `24/25 · 126/129`.
+  - Create 3 entries with the server stopped → chip shows `pending: 3`;
+    start the server → spinner during push, count drops to 0.
+  - Stop the server → push fails, chip shows `error`, retries visibly
+    space out (1s → 2s → 4s … capped at 60s, not a tight loop); after
+    5 min the "Retry now" button appears and forces a cycle.
+  - Row dots: green for synced, yellow for dirty, spinner during sync.
+  - Edit an existing entry → its dot turns yellow; after the 2 s
+    debounced push it returns to green.
+
+- **Hand-off notes for the next session:**
+  - **Read first:** §7.6 (triggers + the "not a Worker" note), §6.3
+    (reachability + retry policy), then §13 Step 9.2 above for the
+    decisions the engine already encodes.
+  - **Imports you need:** `syncNow` and `initSync` from
+    `web/src/sync/engine.ts`; `useSyncState()` from
+    `web/src/state/sync.ts` (returns a `ComputedRef<SyncState>` — use
+    this in components). `syncStateRef()` returns the raw Ref and is what
+    the dev global publishes; prefer `useSyncState()` in views. A
+    `useSync()` wrapper existed in 9.2 and was removed as unused — wire
+    the "Retry now" button straight to `syncNow()`.
+  - **The dirty flag for the row dot** is `local_dirty_at IS NOT NULL` on
+    the `entries` row; `LocalDb.listEntries()` already returns
+    `local_dirty_at` on every `Entry`, so no new query is needed.
+  - **HomeView already reloads** on `DB_CHANGE_EVENT`
+    (`web/src/db/sqlite.ts` exports `DB_CHANGE_EVENT`), so dots refresh
+    without extra plumbing.
+  - **Do not add a second retry timer.** The 2 s push debounce
+    (`schedulePush()` / `cancelPush()`) and the 5 min interval already
+    exist in `engine.ts`; backoff must sit in the same place and respect
+    `syncInFlight`, or the loop-suppression invariants documented in
+    Step 9.2 break.
+  - **Dev global:** `__linkomatSync.state.value` (live Ref),
+    `__linkomatSync.reachability.value`, `await __linkomatSync.syncNow()`.
+    Local DB: `__linkomatDb.raw.exec("SELECT id,title,local_dirty_at FROM entries")`.
+    Both require `make build-server-expose-dev` (or `npm run dev`).
+  - **Verifying by hand:** restart `bin/linkomat-server serve` after every
+    `make build-server-expose-dev`, then hard-reload the browser (the SW
+    is `autoUpdate`, but a hard reload avoids chasing a stale bundle).
+    Filter the Network tab to `entries|healthz` to watch sync traffic —
+    it is all plain `fetch` on the main thread.
+
 - **Notes:** (filled in after implementation)
 
 ### Open questions
-- None.
+- `persistentFailure` is currently set on the **first** push failure by
+  `syncOnce()`'s catch block. That is a 9.2 placeholder; 9.3 must drive
+  it from the backoff timer (`now - firstFailureAt > 5 min`) instead.
+- Direct browser navigation (address bar / reload) to `/entries/:id`
+  returns 401 because the Go mux matches `/entries/{id}` before the SPA
+  fallback. SPA pushState navigation is unaffected. A proper fix would
+  route on `Accept: text/html`. Deferred, carried over from 9.1.
+- The `/settings` route (§7.5: username, logout, version) does not exist
+  yet; HomeView carries a temporary logout button. Not owned by step 9.

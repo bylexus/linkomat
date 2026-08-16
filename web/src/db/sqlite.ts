@@ -87,8 +87,6 @@ export class LocalDb {
       return this.state;
     }
 
-    let recoveredFromCorruption = false;
-    let recoveredFromSchema = false;
     let sidecar: string | undefined;
 
     if (stored && stored.length > 0) {
@@ -106,7 +104,6 @@ export class LocalDb {
         this.db.close();
         this.db = new this.sql.Database();
         this.createSchema();
-        recoveredFromCorruption = true;
         await this.persist().catch(() => undefined);
         this.state = {
           kind: 'ready',
@@ -126,7 +123,6 @@ export class LocalDb {
         this.db.close();
         this.db = new this.sql.Database();
         this.createSchema();
-        recoveredFromSchema = true;
         await this.persist().catch(() => undefined);
         this.state = {
           kind: 'ready',
@@ -158,9 +154,6 @@ export class LocalDb {
       schemaVersion: CURRENT_SCHEMA_VERSION,
     };
     return this.state;
-
-    void recoveredFromCorruption;
-    void recoveredFromSchema;
   }
 
   private checkIntegrity(): { ok: boolean; report?: string } {
@@ -325,7 +318,128 @@ export class LocalDb {
     this.db?.close();
     this.db = null;
   }
+
+  getCursor(): string | null {
+    if (!this.db) throw new Error('db not open');
+    const result = this.db.exec('SELECT cursor FROM sync_state WHERE id = 1');
+    if (result.length === 0 || result[0].values.length === 0) return null;
+    const v = result[0].values[0][0];
+    if (typeof v !== 'string' || v.length === 0) return null;
+    return v;
+  }
+
+  setCursor(cursor: string): void {
+    if (!this.db) throw new Error('db not open');
+    this.db.run('UPDATE sync_state SET cursor = ? WHERE id = 1', [cursor]);
+  }
+
+  listDirtyEntries(): Entry[] {
+    if (!this.db) throw new Error('db not open');
+    const stmt = this.db.prepare(`
+      SELECT id, title, url, note, tags, created_at, updated_at, deleted_at, local_dirty_at, base_updated_at
+      FROM entries
+      WHERE local_dirty_at IS NOT NULL
+      ORDER BY local_dirty_at ASC, id ASC
+    `);
+    const out: Entry[] = [];
+    while (stmt.step()) {
+      out.push(rowToEntry(stmt.getAsObject() as EntryRow));
+    }
+    stmt.free();
+    return out;
+  }
+
+  countDirtyEntries(): number {
+    if (!this.db) throw new Error('db not open');
+    const result = this.db.exec('SELECT COUNT(*) FROM entries WHERE local_dirty_at IS NOT NULL');
+    if (result.length === 0 || result[0].values.length === 0) return 0;
+    const v = result[0].values[0][0];
+    return typeof v === 'number' ? v : Number(v) || 0;
+  }
+
+  private writeServerRow(entry: ServerEntry): void {
+    if (!this.db) throw new Error('db not open');
+    const tagsJson = JSON.stringify(entry.tags);
+    const deletedAt = entry.deleted_at ?? null;
+    this.db.run(
+      `UPDATE entries
+       SET title = ?, url = ?, note = ?, tags = ?,
+           created_at = ?, updated_at = ?, deleted_at = ?,
+           local_dirty_at = NULL, base_updated_at = NULL
+       WHERE id = ?`,
+      [
+        entry.title,
+        entry.url,
+        entry.note,
+        tagsJson,
+        entry.created_at,
+        entry.updated_at,
+        deletedAt,
+        entry.id,
+      ]
+    );
+    if (this.db.getRowsModified() > 0) return;
+    this.db.run(
+      `INSERT INTO entries
+        (id, title, url, note, tags, created_at, updated_at, deleted_at, local_dirty_at, base_updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+      [
+        entry.id,
+        entry.title,
+        entry.url,
+        entry.note,
+        tagsJson,
+        entry.created_at,
+        entry.updated_at,
+        deletedAt,
+      ]
+    );
+  }
+
+  async applyServerEntries(entries: ServerEntry[]): Promise<void> {
+    if (!this.db) throw new Error('db not open');
+    if (entries.length === 0) return;
+    this.db.run('BEGIN');
+    try {
+      for (const entry of entries) {
+        this.writeServerRow(entry);
+      }
+      this.db.run('COMMIT');
+    } catch (err) {
+      this.db.run('ROLLBACK');
+      throw err;
+    }
+    await this.persist();
+    notifyDbChange();
+  }
+
+  async applyServerEntry(entry: ServerEntry): Promise<void> {
+    await this.applyServerEntries([entry]);
+  }
+
+  async clearDirty(id: string, serverUpdatedAt: string): Promise<void> {
+    if (!this.db) throw new Error('db not open');
+    this.db.run(
+      `UPDATE entries
+       SET local_dirty_at = NULL, base_updated_at = ?, updated_at = ?
+       WHERE id = ?`,
+      [serverUpdatedAt, serverUpdatedAt, id]
+    );
+    await this.persist();
+    notifyDbChange();
+  }
 }
+
+export type ServerEntry = {
+  id: string;
+  title: string;
+  url: string;
+  note: string;
+  tags: string[];
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null | undefined;
+};
 
 function errorMessage(err: unknown, fallback: string): string {
   if (err instanceof Error) return `${fallback}: ${err.message}`;

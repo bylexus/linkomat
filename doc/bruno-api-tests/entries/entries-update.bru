@@ -32,7 +32,7 @@ assert {
   res.body.tags[0]: eq foo
   res.body.tags[1]: eq bar
   res.body.tags[2]: eq baz
-  res.body.deleted_at: isUndefined
+  res.body.deleted_at: isNull
 }
 
 docs {

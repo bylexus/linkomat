@@ -40,7 +40,7 @@ assert {
   res.body.tags[1]: eq bar
   res.body.created_at: isString
   res.body.updated_at: isString
-  res.body.deleted_at: isUndefined
+  res.body.deleted_at: isNull
 }
 
 docs {
