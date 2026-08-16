@@ -205,6 +205,93 @@ export class LocalDb {
     return out;
   }
 
+  getEntry(id: string): Entry | null {
+    if (!this.db) throw new Error('db not open');
+    const stmt = this.db.prepare(
+      `SELECT id, title, url, note, tags, created_at, updated_at, deleted_at, local_dirty_at, base_updated_at
+       FROM entries WHERE id = ?`
+    );
+    stmt.bind([id]);
+    let out: Entry | null = null;
+    if (stmt.step()) {
+      out = rowToEntry(stmt.getAsObject() as EntryRow);
+    }
+    stmt.free();
+    return out;
+  }
+
+  async upsertEntry(input: {
+    id: string;
+    title: string;
+    url: string;
+    note: string;
+    tags: string[];
+  }): Promise<Entry> {
+    if (!this.db) throw new Error('db not open');
+    const now = new Date().toISOString();
+    const tagsJson = JSON.stringify(input.tags);
+
+    const lookup = this.db.prepare('SELECT updated_at FROM entries WHERE id = ?');
+    lookup.bind([input.id]);
+    let existingUpdatedAt: string | null = null;
+    if (lookup.step()) {
+      const row = lookup.getAsObject() as { updated_at: string };
+      existingUpdatedAt = row.updated_at;
+    }
+    lookup.free();
+
+    if (existingUpdatedAt !== null) {
+      this.db.run(
+        `UPDATE entries
+         SET title = ?, url = ?, note = ?, tags = ?,
+             updated_at = ?, local_dirty_at = ?, base_updated_at = ?
+         WHERE id = ?`,
+        [input.title, input.url, input.note, tagsJson, now, now, existingUpdatedAt, input.id]
+      );
+    } else {
+      this.db.run(
+        `INSERT INTO entries
+           (id, title, url, note, tags, created_at, updated_at, deleted_at, local_dirty_at, base_updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL)`,
+        [input.id, input.title, input.url, input.note, tagsJson, now, now, now]
+      );
+    }
+
+    await this.persist();
+    notifyDbChange();
+
+    const fresh = this.getEntry(input.id);
+    if (!fresh) throw new Error('upsertEntry: entry missing after write');
+    return fresh;
+  }
+
+  async softDeleteEntry(id: string): Promise<void> {
+    if (!this.db) throw new Error('db not open');
+    const lookup = this.db.prepare('SELECT updated_at FROM entries WHERE id = ?');
+    lookup.bind([id]);
+    let existingUpdatedAt: string | null = null;
+    if (lookup.step()) {
+      const row = lookup.getAsObject() as { updated_at: string };
+      existingUpdatedAt = row.updated_at;
+    }
+    lookup.free();
+
+    if (existingUpdatedAt === null) {
+      throw new Error(`softDeleteEntry: entry ${id} not found`);
+    }
+
+    const now = new Date().toISOString();
+    this.db.run(
+      `UPDATE entries
+       SET deleted_at = ?, updated_at = ?, local_dirty_at = ?, base_updated_at = ?
+       WHERE id = ?`,
+      [now, now, now, existingUpdatedAt, id]
+    );
+
+    await this.persist();
+    notifyDbChange();
+  }
+
   searchEntries(query: string): Entry[] {
     if (!this.db) throw new Error('db not open');
     const fts = toFtsQuery(query);
@@ -235,6 +322,14 @@ export class LocalDb {
 function errorMessage(err: unknown, fallback: string): string {
   if (err instanceof Error) return `${fallback}: ${err.message}`;
   return `${fallback}: ${String(err)}`;
+}
+
+export const DB_CHANGE_EVENT = 'linkomat-db-change';
+
+function notifyDbChange(): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(DB_CHANGE_EVENT));
+  }
 }
 
 function rowToEntry(row: EntryRow): Entry {

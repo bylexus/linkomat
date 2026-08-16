@@ -1,11 +1,16 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue';
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import { RecycleScroller } from 'vue-virtual-scroller';
 import 'vue-virtual-scroller/dist/vue-virtual-scroller.css';
 import { useDb } from '../db';
+import { DB_CHANGE_EVENT } from '../db/sqlite';
+import { uuidv7 } from '../utils/uuid';
+import { normalizeUrl } from '../utils/url';
 import type { Entry } from '../db/sqlite';
 
 const { state, db } = useDb();
+const router = useRouter();
 
 const search = ref('');
 const debouncedSearch = ref('');
@@ -32,13 +37,27 @@ watch([debouncedSearch, state], () => {
   reload();
 });
 
-function onFab(): void {
-  console.warn('FAB: new entry creation lands in step 8');
+function onChange(): void {
+  reload();
 }
+
+onMounted(() => {
+  reload();
+  window.addEventListener(DB_CHANGE_EVENT, onChange);
+});
 
 onBeforeUnmount(() => {
   if (debounceTimer !== null) clearTimeout(debounceTimer);
+  window.removeEventListener(DB_CHANGE_EVENT, onChange);
 });
+
+function onFab(): void {
+  router.push(`/entries/${uuidv7()}`);
+}
+
+function onRowClick(id: string): void {
+  router.push(`/entries/${id}`);
+}
 </script>
 
 <template>
@@ -89,9 +108,23 @@ onBeforeUnmount(() => {
         data-test="home-list"
       >
         <template #default="{ item }">
-          <div class="row" data-test="home-row">
+          <div
+            class="row"
+            data-test="home-row"
+            :data-test-id="item.id"
+            @click="onRowClick(item.id)"
+          >
             <div class="row-title">{{ item.title || item.url || '(untitled)' }}</div>
-            <div class="row-url">{{ item.url }}</div>
+            <a
+              v-if="item.url"
+              class="row-url"
+              :href="normalizeUrl(item.url)"
+              target="_blank"
+              rel="noopener noreferrer"
+              data-test="home-row-url"
+              @click.stop
+            >{{ item.url }}</a>
+            <span v-else class="row-url" />
             <div v-if="item.tags.length" class="row-tags">
               <span v-for="tag in item.tags" :key="tag" class="tag-chip">{{ tag }}</span>
             </div>
@@ -164,6 +197,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   background: #ffffff;
   box-sizing: border-box;
+  cursor: pointer;
 }
 
 .row-title {
@@ -177,7 +211,8 @@ onBeforeUnmount(() => {
 
 .row-url {
   font-size: 0.875rem;
-  color: #6b7280;
+  color: #2563eb;
+  text-decoration: underline;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

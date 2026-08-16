@@ -491,8 +491,8 @@ the web app — the primary v1 client — drives the design first.
 5. Server: embedded web assets, `/healthz`, `/version`, security
    headers, request logging.
 6. Web: PWA scaffold, sql.js wrapper, OPFS persistence, integrity
-   check. **Done (session 9).**
-7. Web: home view + virtualized list + search.
+   check. 
+7. Web: home view + virtualized list + search. **Done**
 8. Web: note editing view + save-on-blur + delete.
 9. Web: sync worker (dirty queue, delta pull, full pull on first
    launch, retry/backoff, status UI).
@@ -821,3 +821,106 @@ delete. Context for the next session:
   manual entry inspection.
 - `CURRENT_SCHEMA_VERSION` stays at 2 unless a new column / table
   is needed for the edit view.
+
+### Session 11 — web note editing view + save-on-blur + delete + URL link (step 8 of §10)
+**Status**: done.
+
+**What landed**
+
+- `web/src/utils/uuid.ts` (new) — `uuidv7()` using `crypto.getRandomValues()`,
+  48-bit ms timestamp, version 7 nibble, variant 10 nibble.
+- `web/src/utils/url.ts` (new) — `normalizeUrl(input)`: empty → empty;
+  existing scheme (`http`, `https`, `ftp`, `mailto`, `javascript`, …)
+  → unchanged; leading `//` → prepended with `https:`; else prepended
+  with `https://`. Trimmed.
+- `web/src/db/sqlite.ts` — adds `getEntry(id)`, `upsertEntry(input)`,
+  `softDeleteEntry(id)`. `upsertEntry`/`softDeleteEntry` auto-persist
+  and dispatch `window` `CustomEvent('linkomat-db-change')` on
+  success. Exports `DB_CHANGE_EVENT` for listeners. New row on insert:
+  `created_at = updated_at = local_dirty_at = now`, `deleted_at = NULL`,
+  `base_updated_at = NULL`. On update: `updated_at = local_dirty_at =
+  now`, `base_updated_at = previous updated_at`. Soft delete:
+  `deleted_at = updated_at = local_dirty_at = now`,
+  `base_updated_at = previous updated_at`.
+- `web/src/db/index.ts` — `__linkomatDb` dev global now exposes
+  `getEntry`, `upsertEntry`, `softDeleteEntry` alongside the read
+  methods.
+- `web/src/router.ts` — adds `/entries/:id` route → `EditView`.
+- `web/src/views/EditView.vue` (new) — title input, url input,
+  tags chips (Enter / `,` / blur to add, `×` to remove), note
+  `<textarea>` (12 rows). Save-on-blur per field via `onUrlBlur` /
+  `saveField`. New entry: nothing is written until the first non-empty
+  blur (`isFormEmpty()` early-return). Delete button only shown after
+  first save; new-but-unsaved entries discard on Delete without a
+  confirm dialog. Back arrow + router.push to `/`. Errors surface in
+  a single inline line. Minimal styling — basic borders, focus
+  outline, system fonts.
+- `web/src/views/HomeView.vue` — FAB now
+  `router.push(\`/entries/\${uuidv7()}\`)`; rows are clickable
+  (`onRowClick` → EditView); URL line rendered as
+  `<a :href="normalizeUrl(item.url)" target="_blank" rel="noopener noreferrer" @click.stop>`.
+  `click.stop` keeps row-click → EditView from firing when the link
+  itself is clicked. Empty URL falls back to `<span>` for layout.
+  `.row-url` styled `color:#2563eb; text-decoration:underline`.
+  `onMounted` now calls `reload()` (Vue `watch` does not fire on
+  initial mount; without this, HomeView showed blank after navigating
+  back from EditView). Listens for `DB_CHANGE_EVENT` and reloads on
+  remote writes too.
+
+**Discrepancies from the plan (called out per §0.2)**
+
+- §7.5 says `save-on-blur per field`; this is implemented for title,
+  url, note and the tag chip add/remove path. Tags use Enter / `,` /
+  blur to commit a typed tag, then `saveField()` runs.
+- §7.5 mentions a `tags chips` UI but does not define interaction;
+  the "type-and-Enter / `,` / blur to add, `×` to remove" pattern was
+  chosen and is now part of the contract.
+- URL normalization is applied on blur in `EditView` AND defensively
+  on render in `HomeView` (so legacy entries stored without a scheme
+  still open the right URL). The plan did not call for display-side
+  normalization; flag it as an additional behaviour.
+- `upsertEntry` / `softDeleteEntry` auto-persist and dispatch a
+  `linkomat-db-change` window event so HomeView refreshes without a
+  shared reactive store. Plan said "stamps local_dirty_at = now() and
+  base_updated_at = current updated_at"; the persist + event are
+  added glue, not schema changes.
+
+**Decisions made in this session**
+
+- UUIDv7 implemented client-side in `web/src/utils/uuid.ts`. No new
+  dependency. `crypto.getRandomValues()` is available in every
+  browser that has OPFS, which the rest of the app already requires.
+- `click.stop` on the URL link keeps the row's `onRowClick`
+  (`router.push(/entries/:id)`) from firing when the user clicks the
+  link. The link's default action (open href in a new tab via
+  `target="_blank"`) is not prevented.
+- `target="_blank"` + `rel="noopener noreferrer"` — standard
+  safe-new-tab attributes.
+- HomeView reloads on `linkomat-db-change` even when the source of the
+  event is the current session. Cheap (a `listEntries()` call) and
+  means a single code path covers both local and remote mutations.
+- EditView `onDelete` on a never-saved new entry skips the confirm
+  dialog — there is nothing to lose.
+- Tag input uses Enter, `,` and blur as commit triggers; all three
+  funnel through `addTag()` which dedupes and then calls
+  `saveField()`.
+- `CURRENT_SCHEMA_VERSION` stays at 2 — no schema change.
+
+**Smoke checks performed**
+
+- `npm run build` clean (vue-tsc + vite); 179.20 kB / gzip 64.23 kB.
+- `make build-server` clean, 12 precache entries, 11 embedded files.
+- `make api-test` baseline `24/25 / 126/129` (unchanged; web-only).
+- One-off Node 24 smoke (since-deleted) confirmed UUIDv7 shape,
+  `base_updated_at` preservation across update, `local_dirty_at`
+  stamping, soft-delete tombstone, FTS3 indexing, schema v2.
+- `normalizeUrl` smoke run: `"" → ""`, `"foo" → "https://foo"`,
+  `"www.google.ch/foo" → "https://www.google.ch/foo"`,
+  `"//foo.com/path" → "https://foo.com/path"`,
+  `"https://foo" → "https://foo"`, `"  foo  " → "https://foo"`.
+- Manual: create / edit / tag-add / tag-remove / delete / URL
+  normalization on blur / click URL → new tab / click row → EditView
+  / navigate back → list reloads without page refresh.
+
+**Next**: step 9 of §10 — web sync worker (dirty queue, delta pull,
+full pull on first launch, retry/backoff, status UI).

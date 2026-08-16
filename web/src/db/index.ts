@@ -25,6 +25,15 @@ function exposeDev(): void {
     raw: db.getRawDb(),
     listEntries: () => db.listEntries(),
     searchEntries: (q: string) => db.searchEntries(q),
+    getEntry: (id: string) => db.getEntry(id),
+    upsertEntry: (input: {
+      id: string;
+      title: string;
+      url: string;
+      note: string;
+      tags: string[];
+    }) => db.upsertEntry(input),
+    softDeleteEntry: (id: string) => db.softDeleteEntry(id),
     persist: () => db.persist(),
   };
 }
