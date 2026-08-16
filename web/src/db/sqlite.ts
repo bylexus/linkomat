@@ -38,6 +38,21 @@ export type DbState =
     }
   | { kind: 'error'; message: string };
 
+export type Entry = {
+  id: string;
+  title: string;
+  url: string;
+  note: string;
+  tags: string[];
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  local_dirty_at: string | null;
+  base_updated_at: string | null;
+};
+
+type EntryRow = Omit<Entry, 'tags'> & { tags: string };
+
 export class LocalDb {
   private db: Database | null = null;
   private sql: SqlJsStatic | null = null;
@@ -169,6 +184,48 @@ export class LocalDb {
     await writeOpfsFile(OPFS_DB_FILENAME, data);
   }
 
+  getRawDb(): Database {
+    if (!this.db) throw new Error('db not open');
+    return this.db;
+  }
+
+  listEntries(): Entry[] {
+    if (!this.db) throw new Error('db not open');
+    const stmt = this.db.prepare(`
+      SELECT id, title, url, note, tags, created_at, updated_at, deleted_at, local_dirty_at, base_updated_at
+      FROM entries
+      WHERE deleted_at IS NULL
+      ORDER BY updated_at DESC, id ASC
+    `);
+    const out: Entry[] = [];
+    while (stmt.step()) {
+      out.push(rowToEntry(stmt.getAsObject() as EntryRow));
+    }
+    stmt.free();
+    return out;
+  }
+
+  searchEntries(query: string): Entry[] {
+    if (!this.db) throw new Error('db not open');
+    const fts = toFtsQuery(query);
+    if (!fts) return this.listEntries();
+    const stmt = this.db.prepare(`
+      SELECT e.id, e.title, e.url, e.note, e.tags, e.created_at, e.updated_at, e.deleted_at, e.local_dirty_at, e.base_updated_at
+      FROM entries_fts f, entries e
+      WHERE f.docid = e.rowid
+        AND entries_fts MATCH ?
+        AND e.deleted_at IS NULL
+      ORDER BY e.updated_at DESC, e.id ASC
+    `);
+    stmt.bind([fts]);
+    const out: Entry[] = [];
+    while (stmt.step()) {
+      out.push(rowToEntry(stmt.getAsObject() as EntryRow));
+    }
+    stmt.free();
+    return out;
+  }
+
   close(): void {
     this.db?.close();
     this.db = null;
@@ -178,4 +235,29 @@ export class LocalDb {
 function errorMessage(err: unknown, fallback: string): string {
   if (err instanceof Error) return `${fallback}: ${err.message}`;
   return `${fallback}: ${String(err)}`;
+}
+
+function rowToEntry(row: EntryRow): Entry {
+  let tags: string[];
+  try {
+    const parsed = JSON.parse(row.tags);
+    tags = Array.isArray(parsed) ? parsed.filter((t): t is string => typeof t === 'string') : [];
+  } catch {
+    tags = [];
+  }
+  return { ...row, tags };
+}
+
+function toFtsQuery(input: string): string {
+  const tokens = input
+    .trim()
+    .split(/\s+/)
+    .map((t) => t.replace(/["']/g, ''))
+    .filter(Boolean);
+  if (tokens.length === 0) return '';
+  return tokens.map((t) => {
+    const upper = t.toUpperCase();
+    if (upper === 'AND' || upper === 'OR' || upper === 'NOT' || upper === 'NEAR') return upper;
+    return `${t}*`;
+  }).join(' ');
 }

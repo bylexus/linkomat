@@ -17,13 +17,17 @@ BRUNO_PASS    ?= hunter2
 
 NVM_SH ?= $(HOME)/.nvm/nvm.sh
 
-.PHONY: help build-server build-cli web-build web-embed dev clean tidy all api-test api-test-auth api-test-req api-test-reset
+.PHONY: help build-server build-server-expose-dev build-cli web-build web-embed dev clean tidy all api-test api-test-auth api-test-req api-test-reset
 
 help:
 	@echo "Targets:"
 	@echo "  build-server     Build the Go server to $(SERVER_BIN)"
 	@echo "                     (depends on web-embed, which builds web/dist and"
 	@echo "                     copies it into api/web_dist/ for go:embed)"
+	@echo "  build-server-expose-dev"
+	@echo "                   Same as build-server but with Vite --mode expose-dev;"
+	@echo "                     the embedded bundle exposes window.__linkomatDb"
+	@echo "                     for manual DevTools seeding on :8080"
 	@echo "  build-cli        Build the CLI to $(CLI_BIN)"
 	@echo "  web-build        Install deps and build the web PWA to web/dist"
 	@echo "  web-embed        Copy web/dist into api/web_dist/ for the embedded"
@@ -48,6 +52,15 @@ NVM_LOAD = if [ -s "$(NVM_SH)" ]; then . "$(NVM_SH)" && nvm use > /dev/null; fi
 BRUNO_VARS = --env-var baseUrl=$(BRUNO_BASEURL) --env-var username=$(BRUNO_USER) --env-var password=$(BRUNO_PASS)
 
 build-server: web-embed
+	@mkdir -p bin
+	$(GO) build -o $(SERVER_BIN) ./$(API_DIR)
+
+build-server-expose-dev:
+	cd $(WEB_DIR) && bash -lc '$(NVM_LOAD) && $(NPM) run build -- --mode expose-dev'
+	@rm -rf $(API_DIR)/web_dist
+	@mkdir -p $(API_DIR)/web_dist
+	@cp -R $(WEB_DIR)/dist/. $(API_DIR)/web_dist/
+	@echo "Embedded $$(ls $(API_DIR)/web_dist | wc -l | tr -d ' ') top-level files into api/web_dist/ (expose-dev)"
 	@mkdir -p bin
 	$(GO) build -o $(SERVER_BIN) ./$(API_DIR)
 

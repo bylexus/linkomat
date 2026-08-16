@@ -24,6 +24,7 @@ declare module 'sql.js' {
     bind(params?: SqlValue[]): boolean;
     step(): boolean;
     get(): SqlValue[];
+    getAsObject(): Record<string, SqlValue>;
     free(): void;
   }
 

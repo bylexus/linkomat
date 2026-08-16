@@ -38,9 +38,16 @@ For a fresh agent session continuing work on this project:
      cannot match a precache entry against it.
    - Web CSP `script-src` must include `'wasm-unsafe-eval'`
      (required by `WebAssembly.instantiate` for sql.js).
-   - No Background Sync API usage.
-   - Light mode only.
-   - Embedded web assets in the server binary.
+- No Background Sync API usage.
+    - Light mode only.
+    - Embedded web assets in the server binary.
+    - Node.js ≥ 24 is required for the web build (Vite 8 / vite-plugin-pwa 1
+      require it; `npm install` and `npm run build` both emit engine warnings on
+      older Node). The `web/` folder ships a `.nvmrc` pinned to `24`. Use a
+      system-wide Node ≥ 24 if available; otherwise `cd web && nvm use` before
+      any direct `npm` call. The Makefile already sources `$(HOME)/.nvm/nvm.sh`
+      and runs `nvm use` for `make web-build` / `make dev`, so those targets work
+      regardless of the system Node version.
 6. **Placeholders to confirm before module init**:
    - Go module path: `github.com/bylexus/linkomat/{api,cli,shared}`
      (confirmed in step 1; existing `go.mod` files set this).
@@ -381,9 +388,24 @@ overwrite without merge UI.
 ### 7.7 Search
 
 - Client-side over local sql.js DB.
-- FTS5 virtual table mirroring entries if the build supports FTS5;
-  otherwise `LIKE`-based search.
+- FTS3 virtual table (`entries_fts`) mirroring entries via
+  `entries_ai`/`entries_ad`/`entries_au` triggers. Tags JSON syntax
+  (`[`, `]`, `"`, `,`) is stripped in the trigger before insertion
+  so that tokens inside the JSON string are indexed correctly
+  (e.g. `["rust","web"]` indexes as `rust web`). The plan originally
+  specified FTS5; `sql.js@1.14.2`'s WASM is compiled with
+  `-DSQLITE_ENABLE_FTS3` only — FTS5 needs `-DSQLITE_ENABLE_FTS5`
+  and an EMSDK fork build per `node_modules/sql.js/CONTRIBUTING.md`.
+  FTS3 ships in the npm artefact and gives us proper tokenisation,
+  implicit-AND, explicit-OR, and prefix matching at zero infra cost.
+  LIKE-based search was rejected as the fallback because FTS3 was
+  already available.
 - Debounced 200 ms. Match against `title`, `url`, `note`, `tags`.
+  Query syntax: implicit AND across tokens (`rust lang` matches docs
+  with both); explicit `OR` / `NOT` operators supported by FTS3 are
+  reserved for future use. The client appends `*` to each
+  non-operator token so partial-word search works without typing
+  `*`.
 
 ### 7.8 Editor
 
@@ -687,3 +709,115 @@ calls. `writeError` still sets `Cache-Control` because `authenticate()`'s
   stateful `login-rate-limited` fails).
 
 **Next**: step 7 of §10 — web home view + virtualized list + search.
+
+### Session 10 — web home view + virtualized list + search (step 7 of §10)
+**Status**: done, committed.
+
+**What landed**
+
+- `web/package.json` — added `vue-router@^4.4.5`, `vue-virtual-scroller@^2.0.0-beta.8`.
+- `web/src/db/schema.ts` — `CURRENT_SCHEMA_VERSION = 2`; added `entries_fts`
+  (FTS3) virtual table + `entries_ai`/`entries_ad`/`entries_au` triggers
+  that strip JSON syntax from `tags` before indexing.
+- `web/src/db/sqlite.ts` — added `Entry` type, `getRawDb()`,
+  `listEntries()`, `searchEntries()` (FTS3 MATCH). Read paths only; no
+  write API (that is step 8).
+- `web/src/db/index.ts` (new) — `useDb()` singleton + reactive `state`
+  ref. Exposes `window.__linkomatDb` in dev mode (see below).
+- `web/src/router.ts` (new) — `vue-router` with the single `/` route →
+  `HomeView`.
+- `web/src/views/HomeView.vue` (new) — search bar (200 ms debounce),
+  `RecycleScroller` (fixed `item-size=96`), empty-state banners, FAB
+  with `console.warn` no-op, fixed bottom-right on mobile.
+- `web/src/main.ts` — installs router + `VueVirtualScroller`; calls
+  `useDb()`.
+- `web/src/App.vue` — minimal `<RouterView />` plus light-mode reset.
+- `web/src/sql.js.d.ts` — added `getAsObject()` to the local
+  `Statement` declaration.
+- `web/.env.expose-dev` (new) — `VITE_EXPOSE_DEV=true` (committed
+  build flag).
+- `Makefile` — new `build-server-expose-dev` target.
+
+**Discrepancies from the plan (called out per §0.2)**
+
+- §7.7 said "FTS5 virtual table mirroring entries if the build
+  supports FTS5; otherwise `LIKE`-based search." `sql.js@1.14.2`'s
+  WASM is compiled with `-DSQLITE_ENABLE_FTS3` only (per
+  `node_modules/sql.js/CONTRIBUTING.md`); FTS5 needs an EMSDK fork
+  build. Falling back to FTS3 — built-in, no infra change, and
+  delivers proper tokenisation, implicit AND, explicit OR, prefix
+  matching. LIKE was rejected because FTS3 was already available.
+  §7.7 updated accordingly.
+
+**Decisions made in this session**
+
+- `vue-router` with one route only (`/`) for step 7; `/login`,
+  `/entries/:id`, `/settings` land in later steps.
+- FAB is rendered but its click handler is `console.warn` until step
+  8 wires it to the new-entry route.
+- `vue-virtual-scroller` chosen over a hand-rolled windowed list
+  (variable-height tolerance + battle-tested edge cases).
+- `CURRENT_SCHEMA_VERSION` bumped to 2 so existing v1 OPFS DBs are
+  sidecar-renamed and rebuilt with `entries_fts` (no data loss
+  path; entries are persisted to a `corrupt-v1-<ts>.db` sidecar in
+  OPFS).
+- Dev global mechanism: `import.meta.env.DEV || import.meta.env.VITE_EXPOSE_DEV`.
+  Two ways to expose the global:
+  - `npm run dev` (Vite dev server on :5173) → `DEV = true`.
+  - `make build-server-expose-dev` (Go server on :8080) → reads
+    `.env.expose-dev` via `--mode expose-dev`, which sets
+    `VITE_EXPOSE_DEV = true` in the embedded bundle.
+  Default `make build-server` (production) leaves both flags false
+  and the global is tree-shaken out.
+- Tags JSON syntax (`[`, `]`, `"`, `,`) replaced with spaces in the
+  FTS3 trigger so JSON punctuation doesn't tokenise as a single
+  blob. `["rust","web"]` becomes ` rust web ` → tokens `rust` and
+  `web`.
+- `toFtsQuery()` strips stray `"` and `'` from each token and
+  appends `*` for prefix matching; reserved FTS3 operators
+  (`AND`/`OR`/`NOT`/`NEAR`) are preserved uppercase and not
+  suffixed. Empty query falls back to `listEntries()`.
+- Smoke script `web/scripts/fts3-impl-smoke.cjs` was used during
+  development to verify FTS3 behaviour in the Node WASM build, then
+  deleted before commit.
+
+**Smoke checks performed**
+
+- `npm run build` clean; bundle 172.2 kB / gzip 62.1 kB.
+- `make build-server` clean; embedded 11 files; binary builds.
+- `make build-server-expose-dev` clean; `grep __linkomatDb
+  api/web_dist/assets/*.js` → 1.
+- Server-side smoke: `/` → 200 (SPA HTML); `/manifest.webmanifest` →
+  200; `/assets/index-…js` → 200; `/sqlite/sql-wasm-browser.wasm?v=2` →
+  200, `application/wasm`, 658 410 bytes.
+- `make api-test` → baseline `24/25 / 126/129` (unchanged; web-only
+  change).
+- Manual seed via `__linkomatDb.raw.exec(...)` + `__linkomatDb.persist()`
+  + reload: three sample entries render; search `rust` / `db` /
+  `sqlite` / `rust lang` / `rust OR vue` all match expected rows;
+  soft-delete via `UPDATE entries SET deleted_at = …` removes the
+  row from the list (FTS index still holds it; the `deleted_at IS
+  NULL` filter excludes it).
+
+**Next**: step 8 of §10 — web note editing view + save-on-blur +
+delete. Context for the next session:
+
+- The edit route is `/entries/:id` (per §7.5); register it in
+  `web/src/router.ts`. The dev-only no-op FAB in `HomeView.vue`
+  gets wired to `router.push(`/entries/${newId()}`)` where
+  `newId()` mints a UUIDv7 client-side (no API call yet).
+- Reuse `LocalDb.listEntries()` / `searchEntries()` for the
+  entry list (no new read APIs needed). Add `LocalDb.upsertEntry(entry)`
+  and `LocalDb.softDeleteEntry(id)` — both stamp
+  `local_dirty_at = now()` and `base_updated_at = current
+  updated_at` per §6.1; no server call yet (sync is step 9).
+- Save-on-blur per field: title input, url input, `<textarea>`
+  for note, tags chips. No rich text, no preview (§7.8).
+- Delete button on the edit view; confirmation prompt.
+- Search bar / FAB continue to work; no changes to `HomeView.vue`
+  other than wiring the FAB.
+- Keep `import.meta.env.DEV || import.meta.env.VITE_EXPOSE_DEV`
+  gate in `useDb()`; the dev global is still useful in step 8 for
+  manual entry inspection.
+- `CURRENT_SCHEMA_VERSION` stays at 2 unless a new column / table
+  is needed for the edit view.

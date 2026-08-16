@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
 export const CREATE_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS schema_version (
@@ -16,6 +16,36 @@ export const CREATE_SCHEMA_SQL = `
     local_dirty_at TEXT NULL,
     base_updated_at TEXT NULL
   );
+  CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts3(
+    title,
+    url,
+    note,
+    tags
+  );
+  CREATE TRIGGER IF NOT EXISTS entries_ai AFTER INSERT ON entries BEGIN
+    INSERT INTO entries_fts(docid, title, url, note, tags)
+    VALUES (
+      new.rowid,
+      new.title,
+      new.url,
+      new.note,
+      REPLACE(REPLACE(REPLACE(REPLACE(new.tags, '[', ' '), ']', ' '), '"', ' '), ',', ' ')
+    );
+  END;
+  CREATE TRIGGER IF NOT EXISTS entries_ad AFTER DELETE ON entries BEGIN
+    DELETE FROM entries_fts WHERE docid = old.rowid;
+  END;
+  CREATE TRIGGER IF NOT EXISTS entries_au AFTER UPDATE ON entries BEGIN
+    DELETE FROM entries_fts WHERE docid = old.rowid;
+    INSERT INTO entries_fts(docid, title, url, note, tags)
+    VALUES (
+      new.rowid,
+      new.title,
+      new.url,
+      new.note,
+      REPLACE(REPLACE(REPLACE(REPLACE(new.tags, '[', ' '), ']', ' '), '"', ' '), ',', ' ')
+    );
+  END;
   INSERT OR REPLACE INTO schema_version (version) VALUES (${CURRENT_SCHEMA_VERSION});
 `;
 
