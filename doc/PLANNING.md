@@ -566,7 +566,7 @@ limit.
 
 ### Session 3 — server auth + meta DB + user CLI (step 3 of §10)
 
-**Status**: done, uncommitted (entire stage below lands in one commit).
+**Status**: done, committed (`2acc1c7`).
 
 **What landed**:
 
@@ -676,7 +676,7 @@ DBs.
 
 ### Session 4 — drop server-side TLS termination (small change)
 
-**Status**: done, uncommitted.
+**Status**: done, committed (`01d74d3`).
 
 **What changed**:
 
