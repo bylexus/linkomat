@@ -1,0 +1,40 @@
+meta {
+  name: Refresh (cookie)
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/auth/refresh
+  body: none
+  auth: none
+}
+
+script:post-response {
+  if (res.status === 200) {
+    bru.setEnvVar("lastAccessToken", res.body.access_token);
+    bru.setEnvVar("lastRefreshToken", res.body.refresh_token);
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.headers["cache-control"]: contains no-store
+  res.headers["set-cookie"][0]: contains linkomat_auth=
+  res.headers["set-cookie"][1]: contains linkomat_refresh=
+  res.body.access_token: isString
+  res.body.refresh_token: isString
+  res.body.expires_in: eq 900
+  res.body.username: eq {{username}}
+}
+
+docs {
+  POST /auth/refresh using the linkomat_refresh cookie from the
+  collection's cookie jar. This is the browser / PWA flow.
+
+  The server rotates the token pair: the presented refresh token is
+  revoked and a new (access, refresh) pair is returned. The old
+  refresh token cannot be used again.
+
+  Run after login.bru in the same collection to have a cookie set.
+}

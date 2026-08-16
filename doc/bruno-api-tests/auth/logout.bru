@@ -1,0 +1,32 @@
+meta {
+  name: Logout
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/auth/logout
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 204
+  res.headers["cache-control"]: contains no-store
+  res.headers["set-cookie"][0]: contains linkomat_auth=
+  res.headers["set-cookie"][0]: contains Max-Age=0
+  res.headers["set-cookie"][1]: contains linkomat_refresh=
+  res.headers["set-cookie"][1]: contains Max-Age=0
+}
+
+docs {
+  POST /auth/logout. The server revokes the current refresh token
+  (looked up from the linkomat_refresh cookie) and clears both
+  cookies via Set-Cookie with Max-Age=0.
+
+  Body is empty (204 No Content). Safe to call even with no valid
+  cookie — it returns 204 and clears the cookie jar regardless.
+
+  Run before refresh-after-logout.bru to verify the revoked-token
+  path.
+}

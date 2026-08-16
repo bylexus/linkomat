@@ -2,26 +2,44 @@ SHELL := /bin/bash
 
 GO         ?= go
 NPM        ?= npm
+BRUNO      ?= bru
 WEB_DIR    := web
 API_DIR    := api
 CLI_DIR    := cli
+BRUNO_DIR  := doc/bruno-api-tests
 SERVER_BIN := bin/linkomat-server
 CLI_BIN    := bin/linkomat
 
+BRUNO_ENV     ?= Local
+BRUNO_BASEURL ?= http://localhost:8080
+BRUNO_USER    ?= alice
+BRUNO_PASS    ?= hunter2
+
 NVM_SH ?= $(HOME)/.nvm/nvm.sh
 
-.PHONY: help build-server build-cli web-build dev clean tidy all
+.PHONY: help build-server build-cli web-build dev clean tidy all api-test api-test-req api-test-reset
 
 help:
 	@echo "Targets:"
-	@echo "  build-server  Build the Go server to $(SERVER_BIN)"
-	@echo "  build-cli     Build the CLI to $(CLI_BIN)"
-	@echo "  web-build     Install deps and build the web PWA"
-	@echo "  dev           Run the web dev server and the Go server concurrently"
-	@echo "  tidy          Run go mod tidy across all modules"
-	@echo "  clean         Remove build artifacts"
+	@echo "  build-server     Build the Go server to $(SERVER_BIN)"
+	@echo "  build-cli        Build the CLI to $(CLI_BIN)"
+	@echo "  web-build        Install deps and build the web PWA"
+	@echo "  dev              Run the web dev server and the Go server concurrently"
+	@echo "  tidy             Run go mod tidy across all modules"
+	@echo "  api-test         Run the Bruno collection against $(BRUNO_BASEURL)"
+	@echo "                     (server must already be running; override with"
+	@echo "                     BRUNO_BASEURL / BRUNO_USER / BRUNO_PASS / BRUNO_ENV)"
+	@echo "  api-test-req     Run a single request from the collection"
+	@echo "                     (set REQ=<name>, e.g. REQ=login)"
+	@echo "  api-test-reset   Reset captured token values in the Local env"
+	@echo "                     (Bruno CLI 4.x writes runtime var values back"
+	@echo "                     into Local.bru after each run; run this before"
+	@echo "                     committing to keep tokens out of git)"
+	@echo "  clean            Remove build artifacts"
 
 NVM_LOAD = if [ -s "$(NVM_SH)" ]; then . "$(NVM_SH)" && nvm use > /dev/null; fi
+
+BRUNO_VARS = --env-var baseUrl=$(BRUNO_BASEURL) --env-var username=$(BRUNO_USER) --env-var password=$(BRUNO_PASS)
 
 build-server:
 	@mkdir -p bin
@@ -48,6 +66,16 @@ tidy:
 	cd shared && $(GO) mod tidy
 
 all: build-server build-cli web-build
+
+api-test:
+	cd $(BRUNO_DIR) && $(BRUNO) run auth --env $(BRUNO_ENV) $(BRUNO_VARS)
+
+api-test-req:
+	@if [ -z "$(REQ)" ]; then echo "Usage: make api-test-req REQ=<request-name>"; exit 2; fi
+	cd $(BRUNO_DIR) && $(BRUNO) run auth/$(REQ).bru --env $(BRUNO_ENV) $(BRUNO_VARS)
+
+api-test-reset:
+	@printf 'vars {\n  baseUrl: http://localhost:8080\n  username: alice\n  password: hunter2\n  badPassword: definitely-wrong\n  deactivatableUsername: charlie\n  bogusRefreshToken: deadbeef0000000000000000000000000000000000000000000000000000beef\n  lastAccessToken: \n  lastRefreshToken: \n}\n\nvars:secret [\n  lastAccessToken,\n  lastRefreshToken\n]\n' > $(BRUNO_DIR)/environments/Local.bru
 
 clean:
 	rm -rf bin

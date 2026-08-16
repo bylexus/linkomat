@@ -1,0 +1,57 @@
+meta {
+  name: Login (success)
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/auth/login
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "username": "{{username}}",
+    "password": "{{password}}"
+  }
+}
+
+script:post-response {
+  if (res.status === 200) {
+    bru.setEnvVar("lastAccessToken", res.body.access_token);
+    bru.setEnvVar("lastRefreshToken", res.body.refresh_token);
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.headers["cache-control"]: contains "no-store"
+  res.headers["x-content-type-options"]: eq nosniff
+  res.headers["set-cookie"][0]: contains linkomat_auth=
+  res.headers["set-cookie"][0]: contains Path=/
+  res.headers["set-cookie"][0]: contains HttpOnly
+  res.headers["set-cookie"][0]: contains SameSite=Strict
+  res.headers["set-cookie"][1]: contains linkomat_refresh=
+  res.headers["set-cookie"][1]: contains Path=/
+  res.headers["set-cookie"][1]: contains HttpOnly
+  res.headers["set-cookie"][1]: contains SameSite=Strict
+  res.body.access_token: isString
+  res.body.refresh_token: isString
+  res.body.expires_in: eq 900
+  res.body.username: eq {{username}}
+}
+
+docs {
+  POST /auth/login with username + password. Sets linkomat_auth
+  (Path /) and linkomat_refresh (Path /) cookies and
+  returns shared.AuthResponse JSON.
+
+  On success, the response script captures access_token and
+  refresh_token into env vars lastAccessToken / lastRefreshToken so
+  subsequent requests (refresh-body, logout) can reference them.
+}

@@ -1,0 +1,41 @@
+meta {
+  name: Refresh (invalid token)
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/auth/refresh
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+script:pre-request {
+  bru.cookies.delete('linkomat_refresh');
+}
+
+body:json {
+  {
+    "refresh_token": "{{bogusRefreshToken}}"
+  }
+}
+
+assert {
+  res.status: eq 401
+  res.body.type: contains invalid-token
+  res.body.title: isString
+  res.body.status: eq 401
+}
+
+docs {
+  Refresh with a token that doesn't exist in the meta DB — expect
+  401 invalid-token. The bogusRefreshToken env var is a 32-byte hex
+  string that has never been issued.
+
+  Also covers the case where a previously valid refresh token has
+  been rotated or revoked.
+}

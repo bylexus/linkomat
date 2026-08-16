@@ -98,6 +98,7 @@ stores `base_updated_at` for conflict detection.
 | `id`          | INTEGER PK   |                                                        |
 | `user_id`     | INTEGER FK   |                                                        |
 | `type`        | TEXT         | `access` or `refresh`.                                 |
+| `value`       | TEXT         | Opaque random token (32-byte hex, unique).             |
 | `expires_at`  | DATETIME     | Access 15 min, refresh 30 d.                           |
 | `revoked_at`  | DATETIME NULL| Set on rotation or logout.                             |
 | `created_at`  | DATETIME     |                                                        |
@@ -191,7 +192,7 @@ unset.
 | Cookie            | Path             | Value         | Flags                              |
 |-------------------|------------------|---------------|------------------------------------|
 | `linkomat_auth`   | `/`              | access token  | `HttpOnly`, `SameSite=Strict`, `Secure` |
-| `linkomat_refresh`| `/auth/refresh`  | refresh token | `HttpOnly`, `SameSite=Strict`, `Secure` |
+| `linkomat_refresh`| `/`              | refresh token | `HttpOnly`, `SameSite=Strict`, `Secure` |
 
 Browser clients send both cookies automatically. CLI sends
 `Authorization: Bearer <access_token>` for non-auth routes and uses the
@@ -332,7 +333,7 @@ overwrite without merge UI.
 ### 7.4 Auth on the Web
 
 - Server sets `linkomat_auth` (Path `/`) and `linkomat_refresh`
-  (Path `/auth/refresh`) cookies. Client never reads them in JS.
+  (Path `/`) cookies. Client never reads them in JS.
 - Authorization header is **not** sent by the web app.
 - Single in-flight refresh promise per session. On 401 from any
   non-auth route, attempt `/auth/refresh` once; on success, retry the
@@ -518,14 +519,9 @@ Session-by-session state. Read this section first when resuming.
   entries.
 - `npm run dev` → Vite serves on `:5173`, page shows “Scaffold ok”.
 
-**Next**: step 2 of §10 — `shared/` DTOs (`Entry`, `AuthResponse`,
-`ErrorResponse`, cookie name constants, schema version constant,
-`currentSchemaVersion`). Wire them into `api/` and `cli/` as plain
-imports first; runtime server logic is step 3.
-
 ### Session 2 — shared/ DTOs (step 2 of §10)
 
-**Status**: done, uncommitted.
+**Status**: done, committed (`c51fa80`).
 
 **What landed**:
 
@@ -545,6 +541,13 @@ imports first; runtime server logic is step 3.
 - `api/main.go` and `cli/main.go` now import `shared` and use
   `shared.Version` instead of a duplicated local constant.
 
+**Decisions made in this session**:
+
+- Workspace-local Go modules need an explicit `require` + `replace` in
+  the consumer's `go.mod` (`=> ../shared`) so `go mod tidy` does not try
+  to resolve them over the network. `go.work` alone covers builds but
+  not tidy. Keep this pattern for any future internal module split.
+
 **Smoke checks performed**:
 
 - `make tidy` → clean across all three modules.
@@ -556,3 +559,113 @@ imports first; runtime server logic is step 3.
 **Next**: step 3 of §10 — server meta DB, user CRUD CLI, password
 hashing, `/auth/login`, `/auth/refresh`, `/auth/logout`, login rate
 limit.
+
+### Session 3 — server auth + meta DB + user CLI (step 3 of §10)
+
+**Status**: done, uncommitted (entire stage below lands in one commit).
+
+**What landed**:
+
+- `api/config.go`: `Config` loaded from `LINKOMAT_*` env vars. Defaults
+  match §5.2. Refuses to start with `LINKOMAT_COOKIE_SECURE=true` and
+  no `LINKOMAT_TLS_*` set.
+- `api/models.go`: `User`, `Token`, `SchemaVersion` GORM models per §3.2
+  and §3.3.
+- `api/meta.go`: `MetaDB` opens `data/meta.db` with the §5.1 DSN
+  flags; `AutoMigrate` runs and the `schema_version` row is upserted
+  to `shared.CurrentSchemaVersion`.
+- `api/auth.go`: argon2id hash/verify with the §3.2 params
+  (`m=64MB, t=1, p=2`). Opaque 32-byte hex tokens; helpers to issue a
+  pair, look up an active token, revoke one token, revoke all tokens
+  for a user.
+- `api/cookies.go`: `setAuthCookies` / `clearAuthCookies` use the §5.3
+  cookie names/paths and follow `cfg.CookieSecure`.
+- `api/ratelimit.go`: in-memory token bucket per `(remote_ip|username)`
+  on `/auth/login`, 5/min per §5.5. Cleanup goroutine started in
+  `serve`.
+- `api/server.go`: `Server` wires the mux, sets `X-Content-Type-Options`,
+  `Referrer-Policy`, `X-Request-Id`, runs slog JSON request log
+  (§5.1 — full security headers + HSTS deferred to step 5).
+- `api/handlers_auth.go`: `/auth/login`, `/auth/refresh` (rotates),
+  `/auth/logout`. JSON body for CLI, cookies for browser. Errors are
+  `shared.ErrorResponse` (RFC 7807-shaped).
+- `api/cmd_user.go` + `cmd_serve.go` + `cmd_version.go`: cobra
+  subcommands — `user create|set-password|activate|deactivate|delete|
+  list|purge`, `serve`, `version`. Password prompts use
+  `golang.org/x/term` in TTY mode and a shared `bufio.Reader` in
+  non-TTY mode.
+- `api/main.go`: cobra root with `SilenceUsage`/`SilenceErrors` set;
+  errors go to stderr and the process exits 1.
+- `api/go.mod`: new direct deps — `gorm.io/gorm`, `gorm.io/driver/sqlite`,
+  `github.com/spf13/cobra`, `golang.org/x/crypto`, `golang.org/x/term`.
+- `doc/bruno-api-tests/`: Bruno collection covering the auth surface.
+  Includes `script:post-response` blocks on login/refresh to capture
+  rotated tokens into env vars, and `script:pre-request` blocks that
+  delete `linkomat_refresh` from the cookie jar so refresh-body and
+  refresh-invalid actually exercise the body path.
+- `Makefile`: `api-test`, `api-test-req REQ=<name>`, `api-test-reset`
+  targets. Default `BRUNO_*` overrides; help text updated.
+- `doc/bruno-api-tests/README.md`: import instructions, run order, var
+  reference, plus a "secrets and the auto-format caveat" section.
+
+**Discrepancies from the plan (called out per §0.2)**:
+
+- §3.3 listed no `value` column on `tokens`. Implementation needs a way
+  to look up a presented token, so I added `value TEXT` (opaque random
+  hex, unique index). The §3.3 table above is updated to match.
+- §5.3 and §7.4 originally scoped `linkomat_refresh` to `Path
+  /auth/refresh`. RFC 6265 cookies are not sent to paths outside the
+  cookie's path, which meant `/auth/logout` could never revoke the
+  browser's refresh token. Changed `shared.CookiePathRefresh` and the
+  plan §5.3 / §7.4 entries to `Path /`. HttpOnly + Secure +
+  SameSite=Strict still bound the exposure.
+
+**Decisions made in this session**:
+
+- Workspace-local Go modules need an explicit `require` + `replace` in
+  the consumer's `go.mod` (`=> ../shared`) so `go mod tidy` does not try
+  to resolve them over the network. (Carried over from session 2.)
+- `api/` uses `github.com/spf13/cobra` for subcommand dispatch (same
+  library chosen for the CLI module per §8.1). Keeps the operator
+  surface consistent; the alternative was a hand-rolled subcommand
+  parser, which would have been more code for no real benefit.
+- Bruno collection lives under `doc/` rather than a top-level
+  `tests/` so it stays discoverable next to the design doc.
+- `vars:secret` only protects *runtime* token vars (`lastAccessToken`,
+  `lastRefreshToken`). The `bogusRefreshToken` fixture stays in the
+  regular `vars` block because Bruno CLI 4.x wipes values declared in
+  `vars:secret` on every run, which would break `refresh-invalid`.
+
+**Smoke checks performed**:
+
+- `make tidy` and `make build-server build-cli` clean.
+- `go vet ./...` clean for each module.
+- `linkomat-server version` prints `linkomat-server 0.1.0`.
+- `linkomat-server user create alice` + `user list` round-trip.
+- `linkomat-server serve` accepts `POST /auth/login`, returns
+  `shared.AuthResponse` JSON, sets both cookies with correct
+  `Path=/` / `HttpOnly` / `SameSite=Strict` (path fix verified).
+- `POST /auth/login` with wrong password → 401 `invalid-credentials`.
+- 6th login attempt within a minute → 429 `rate-limited`.
+- `POST /auth/refresh` with the cookie rotates the token pair
+  (new access + refresh); refresh after logout → 401 `invalid-token`.
+- `POST /auth/logout` returns 204 and clears both cookies; the cleared
+  cookie path now reaches `/auth/logout` so the server actually
+  revokes the refresh row.
+- `user set-password` flips login to the new password and revokes the
+  previous tokens; message shows the revoked count.
+- `user deactivate` → login returns 403 `account-deactivated`.
+- `user activate` → login returns 200 again.
+- `user create alice` again → error `user "alice" already exists`.
+- `make api-test` against a running server: 7 of 9 requests pass
+  (47/53 assertions). The 2 failures are the documented stateful
+  requests — `login-deactivated` (needs `charlie` created and
+  deactivated) and `login-rate-limited` (needs 5 prior failed attempts
+  in the same minute).
+- `make api-test-req REQ=refresh-invalid` passes twice in a row
+  (verifies `bogusRefreshToken` persists across runs since it is no
+  longer in `vars:secret`).
+
+**Next**: step 4 of §10 — server per-user DB cache, `GET/PUT/DELETE
+/entries`, soft-delete, `AutoMigrate` + `schema_version` for per-user
+DBs.

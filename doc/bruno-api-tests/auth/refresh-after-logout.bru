@@ -1,0 +1,42 @@
+meta {
+  name: Refresh after logout (JSON body)
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/auth/refresh
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "refresh_token": "{{lastRefreshToken}}"
+  }
+}
+
+assert {
+  res.status: eq 401
+  res.body.type: contains invalid-token
+  res.body.title: isString
+  res.body.status: eq 401
+}
+
+docs {
+  Uses the env var lastRefreshToken, which logout.bru did not clear.
+  After logout the server-side refresh token row has revoked_at set,
+  so the FindActiveToken lookup misses and the server returns 401
+  invalid-token.
+
+  Why JSON body and not cookies: the Set-Cookie on logout clears the
+  collection's cookie jar, so the cookie path returns 400
+  invalid-request "Refresh token is required." instead. Sending the
+  token explicitly in the body reproduces the CLI scenario where a
+  token persisted in ~/.config/linkomat/credentials.json is replayed
+  after the user has logged out elsewhere.
+}

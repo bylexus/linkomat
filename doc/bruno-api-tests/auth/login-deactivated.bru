@@ -1,0 +1,42 @@
+meta {
+  name: Login (deactivated user)
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/auth/login
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "username": "{{deactivatableUsername}}",
+    "password": "{{password}}"
+  }
+}
+
+assert {
+  res.status: eq 403
+  res.body.type: contains account-deactivated
+  res.body.title: isString
+  res.body.status: eq 403
+}
+
+docs {
+  Login for a deactivated user — expect 403 account-deactivated.
+
+  Requires:
+  - The user named in env var `deactivatableUsername` to exist with
+    the password from env var `password`.
+  - That user to be deactivated server-side, e.g.:
+      linkomat-server user deactivate {{deactivatableUsername}}
+
+  Reactivate afterwards:
+      linkomat-server user activate {{deactivatableUsername}}
+}
