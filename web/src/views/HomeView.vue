@@ -7,9 +7,11 @@ import { useDb } from '../db';
 import { DB_CHANGE_EVENT } from '../db/sqlite';
 import { uuidv7 } from '../utils/uuid';
 import { normalizeUrl } from '../utils/url';
+import { useAuth } from '../state/auth';
 import type { Entry } from '../db/sqlite';
 
-const { state, db } = useDb();
+const { username, logout } = useAuth();
+const { state, db } = useDb(username.value);
 const router = useRouter();
 
 const search = ref('');
@@ -33,7 +35,7 @@ function reload(): void {
   entries.value = q ? db.searchEntries(q) : db.listEntries();
 }
 
-watch([debouncedSearch, state], () => {
+watch([debouncedSearch, state, username], () => {
   reload();
 });
 
@@ -58,6 +60,10 @@ function onFab(): void {
 function onRowClick(id: string): void {
   router.push(`/entries/${id}`);
 }
+
+async function onLogout(): Promise<void> {
+  await logout();
+}
 </script>
 
 <template>
@@ -73,6 +79,17 @@ function onRowClick(id: string): void {
         spellcheck="false"
         data-test="home-search"
       />
+      <div class="home-meta">
+        <span class="home-username" data-test="home-username">{{ username }}</span>
+        <button
+          type="button"
+          class="logout-btn"
+          data-test="home-logout"
+          @click="onLogout"
+        >
+          Logout
+        </button>
+      </div>
     </header>
 
     <section v-if="state.kind === 'pending'" class="banner" data-test="home-status">
@@ -178,6 +195,33 @@ function onRowClick(id: string): void {
 .search:focus {
   outline: 2px solid #2563eb;
   outline-offset: -1px;
+}
+
+.home-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+
+.home-username {
+  font-weight: 500;
+}
+
+.logout-btn {
+  background: none;
+  border: 1px solid #d1d5db;
+  border-radius: 0.375rem;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+  color: #374151;
+}
+
+.logout-btn:hover {
+  background: #f3f4f6;
 }
 
 .list {

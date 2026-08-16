@@ -49,6 +49,10 @@ export const CREATE_SCHEMA_SQL = `
   INSERT OR REPLACE INTO schema_version (version) VALUES (${CURRENT_SCHEMA_VERSION});
 `;
 
-export const OPFS_DB_FILENAME = 'linkomat.db';
+export function opfsDbFilename(username: string): string {
+  return `linkomat.${username}.db`;
+}
 
-export const OPFS_SIDECAR_PREFIX = 'corrupt-';
+export function opfsSidecarPrefix(username: string): string {
+  return `corrupt-${username}-`;
+}

@@ -9,8 +9,8 @@ import {
 import {
   CURRENT_SCHEMA_VERSION,
   CREATE_SCHEMA_SQL,
-  OPFS_DB_FILENAME,
-  OPFS_SIDECAR_PREFIX,
+  opfsDbFilename,
+  opfsSidecarPrefix,
 } from './schema';
 
 let sqlPromise: Promise<SqlJsStatic> | null = null;
@@ -56,7 +56,12 @@ type EntryRow = Omit<Entry, 'tags'> & { tags: string };
 export class LocalDb {
   private db: Database | null = null;
   private sql: SqlJsStatic | null = null;
+  readonly username: string;
   state: DbState = { kind: 'pending' };
+
+  constructor(username: string) {
+    this.username = username;
+  }
 
   async open(): Promise<DbState> {
     if (!opfsAvailable()) {
@@ -71,9 +76,12 @@ export class LocalDb {
       return this.state;
     }
 
+    const filename = opfsDbFilename(this.username);
+    const sidecarPrefix = opfsSidecarPrefix(this.username);
+
     let stored: Uint8Array | null = null;
     try {
-      stored = await readOpfsFile(OPFS_DB_FILENAME);
+      stored = await readOpfsFile(filename);
     } catch (err) {
       this.state = { kind: 'error', message: errorMessage(err, 'OPFS read failed') };
       return this.state;
@@ -93,8 +101,8 @@ export class LocalDb {
 
       const integrity = this.checkIntegrity();
       if (!integrity.ok) {
-        sidecar = sidecarName(OPFS_SIDECAR_PREFIX);
-        await renameOpfsFile(OPFS_DB_FILENAME, sidecar).catch(() => undefined);
+        sidecar = sidecarName(sidecarPrefix);
+        await renameOpfsFile(filename, sidecar).catch(() => undefined);
         this.db.close();
         this.db = new this.sql.Database();
         this.createSchema();
@@ -113,8 +121,8 @@ export class LocalDb {
 
       const v = this.getSchemaVersion();
       if (v !== CURRENT_SCHEMA_VERSION) {
-        sidecar = sidecarName(`${OPFS_SIDECAR_PREFIX}v${v}-`);
-        await renameOpfsFile(OPFS_DB_FILENAME, sidecar).catch(() => undefined);
+        sidecar = sidecarName(`${sidecarPrefix}v${v}-`);
+        await renameOpfsFile(filename, sidecar).catch(() => undefined);
         this.db.close();
         this.db = new this.sql.Database();
         this.createSchema();
@@ -181,7 +189,7 @@ export class LocalDb {
   async persist(): Promise<void> {
     if (!this.db) throw new Error('db not open');
     const data = this.db.export();
-    await writeOpfsFile(OPFS_DB_FILENAME, data);
+    await writeOpfsFile(opfsDbFilename(this.username), data);
   }
 
   getRawDb(): Database {

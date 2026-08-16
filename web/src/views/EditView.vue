@@ -4,10 +4,12 @@ import { useRoute, useRouter } from 'vue-router';
 import { useDb } from '../db';
 import type { Entry } from '../db/sqlite';
 import { normalizeUrl } from '../utils/url';
+import { useAuth } from '../state/auth';
 
 const route = useRoute();
 const router = useRouter();
-const { state, db } = useDb();
+const { username } = useAuth();
+const { state, db } = useDb(username.value);
 
 const id = computed(() => String(route.params.id));
 

@@ -492,8 +492,8 @@ the web app — the primary v1 client — drives the design first.
    headers, request logging.
 6. Web: PWA scaffold, sql.js wrapper, OPFS persistence, integrity
    check. 
-7. Web: home view + virtualized list + search. **Done**
-8. Web: note editing view + save-on-blur + delete.
+7. Web: home view + virtualized list + search.
+8. Web: note editing view + save-on-blur + delete. **Done**
 9. Web: sync worker (dirty queue, delta pull, full pull on first
    launch, retry/backoff, status UI).
 10. End-to-end manual pass on mobile (PWA install) — CLI still
@@ -924,3 +924,271 @@ delete. Context for the next session:
 
 **Next**: step 9 of §10 — web sync worker (dirty queue, delta pull,
 full pull on first launch, retry/backoff, status UI).
+
+### Session 12 — web sync worker part 1: API client, auth flow, Login view, per-user OPFS (step 9.1 of §10)
+**Status**: in progress (9.1 implementation done; awaiting review).
+
+Per the plan written in §13, step 9 is split into 9.1 (auth + login view +
+per-user OPFS), 9.2 (sync worker + cursor + reachability), and 9.3 (status
+UI + backoff). Sub-steps approved.
+
+**Files added (9.1)**
+- `web/src/api/client.ts` — fetch wrapper with single in-flight refresh on
+  401; `setLogoutHandler` callback; `apiGet`/`apiPost`/`apiPut`/`apiDelete`
+  return `ApiResult` (`ok` / `http-error` / `network-error`).
+- `web/src/api/auth.ts` — `login`, `logout`, `probe` (single
+  `GET /entries?limit=1`).
+- `web/src/state/auth.ts` — reactive `useAuth()` with `AuthState`
+  (`unknown` / `logged-in` / `logged-out`), `username` ref, persisted
+  via `localStorage` key `linkomat.current_username`. `setLogoutHandler`
+  is installed at module load.
+- `web/src/views/LoginView.vue` — username + password form, error line,
+  submit disabled while pending.
+
+**Files modified (9.1)**
+- `web/src/db/schema.ts` — replaces `OPFS_DB_FILENAME` /
+  `OPFS_SIDECAR_PREFIX` constants with `opfsDbFilename(username)` /
+  `opfsSidecarPrefix(username)` helpers.
+- `web/src/db/sqlite.ts` — `LocalDb(username)`; `persist()` uses the
+  per-user filename.
+- `web/src/db/index.ts` — `useDb(username: string | null)` recreates the
+  singleton on username change; new `closeDb()`.
+- `web/src/views/HomeView.vue` — temporary logout button in header
+  (home for /settings, which is a separate step).
+- `web/src/views/EditView.vue` — accepts the username.
+- `web/src/router.ts` — `/login` route.
+- `web/src/App.vue` — auth guard + loading splash.
+- `web/src/main.ts` — loads `state/auth` for the side-effect of
+  installing the logout handler.
+
+**Decisions**
+- Auth state module is loaded before any view in `main.ts` so the
+  `setLogoutHandler` callback is in place before the first API call.
+- `tryRefresh` releases `refreshInFlight` in `finally` so a failed
+  refresh doesn't poison the next attempt.
+- `markLoggedOut` is the single logout sink; both `logout()`
+  (user-initiated) and the API client's `setLogoutHandler` (refresh
+  failed) call it.
+
+**Known limitations**
+- Direct browser navigation (refresh) to `/entries/:id` returns 401
+  because the Go mux matches `/entries/{id}` before the SPA fallback.
+  The SPA's pushState navigation is unaffected. A proper fix would
+  route on `Accept: text/html`; deferred.
+- The "Username" / "Logout" header chip in HomeView is a temporary
+  placement. The plan's `/settings` route (with username display,
+  logout, version) is a separate step.
+
+**Smoke checks**
+- `npm run build` clean (Node 24). Bundle 183.95 kB / gzip 65.74 kB.
+- `make build-server` clean, 11 embedded files.
+- `make api-test` baseline `24/25 / 126/129` (the documented stateful
+  login-rate-limited failure).
+- curl: login → 200 + cookies; list with cookies → 200; logout → 204;
+  refresh (cookie) → 200; refresh (JSON body) → 200.
+- SPA web assets: `/` → 200, `/login` → 200, `/entries/abc` → 401
+  (known limitation), `/manifest.webmanifest` → 200,
+  `/sqlite/sql-wasm-browser.wasm?v=2` → 200.
+
+**Next**: step 9.2 of §10 — sync worker + cursor + reachability.
+
+---
+
+## 13. Step 9 Plan — Web sync worker
+
+**Ticket/Source:** doc/PLANNING.md §10 step 9
+**Branch:** none
+**Status:** in progress (9.1 done)
+
+### Goal
+Wire the local sql.js DB to the server: auth flow, periodic sync, dirty-queue
+push, delta pull, full pull on first launch, reachability gating, backoff on
+push failures, and status UI.
+
+### Scope
+**In scope:**
+- Per-user OPFS file keying (`linkomat.<username>.db`).
+- Login view + reactive auth state + redirect to `/login` on auth failure.
+- API client with single in-flight refresh on 401 (per §7.4).
+- Sync state (cursor, pending count, online, syncing, last error,
+  persistentFailure).
+- Sync worker: push dirty FIFO; delta pull (single `changed_since` call);
+  full pull on first launch (paginated `limit=200&offset=0` until short page).
+- Reachability: `navigator.onLine` + `/healthz` poll every 10 s (§6.3).
+- Triggers: app start, `online` event, visibility change, 5 min interval,
+  manual "sync now" (§7.6).
+- Backoff with jitter (1 s → 60 s cap) on push failures; reset on success.
+- "Retry now" button after 5 min continuous failure.
+- Status UI: pending-count chip in home header + per-row status dot
+  (green / yellow / spinner).
+- Dev-mode global `__linkomatSync` exposing the sync worker for manual
+  inspection.
+
+**Out of scope:**
+- Real-time push from server (no WebSocket / SSE).
+- Multi-device awareness, per-device locks (§11 deferred).
+- Bulk sync endpoint (§11 deferred).
+- `/whoami` endpoint — auth state is implicit.
+- Soft-delete push semantics: server-side entry always wins (last-save-wins
+  per §6.4). Delta pull overwrites local dirty rows including dirty flags.
+
+### Decision log
+- **Sub-step breakdown:** 3 sub-steps (9.1 auth, 9.2 sync worker, 9.3 UI).
+- **Local DB per user:** `linkomat.<username>.db` in OPFS. Username from
+  `localStorage` key `linkomat.current_username`. Logout clears the
+  localStorage key but leaves the OPFS file in place (next login as the
+  same user reuses it).
+- **Cursor storage:** `sync_state` table inside `linkomat.<username>.db`.
+  Schema v3. First sync (empty cursor) triggers full pull; subsequent syncs
+  use `GET /entries?changed_since=<cursor>`.
+- **Auth state detection:** implicit via the first sync attempt. No
+  `/whoami` endpoint. In 9.1, a minimal one-shot `GET /entries?limit=1`
+  probe stands in for the worker; in 9.2 the sync worker takes over.
+- **Sync push for soft-deleted entries:** send `DELETE /entries/:id`
+  (not `PUT`). Local rows with `deleted_at` set are pushed as
+  DELETE; others are PUT. 404 from DELETE is treated as success.
+- **Delta pull:** single call per plan. Server returns all rows with
+  `updated_at > cursor` (no limit on the changed_since path).
+- **Status UI placement:** status dot in the top-right of each row;
+  pending count chip in the home header next to the search bar.
+- **Testing strategy:** manual smoke checks per sub-step. No automated
+  tests in v1 (§1).
+
+### Steps
+
+#### Step 9.1 — API client, auth flow, Login view, per-user OPFS
+- **Status:** done (reviewed 2026-08-16)
+- **What:**
+  - `web/src/api/client.ts` — fetch wrapper with single in-flight
+    refresh on 401; `setLogoutHandler` callback so the auth state can
+    react to refresh failures. `apiGet`/`apiPost`/`apiPut`/`apiDelete`
+    return a typed `ApiResult` (`ok` / `http-error` / `network-error`).
+  - `web/src/api/auth.ts` — `login()`, `logout()`, `probe()`.
+    Login throws with a human-readable message for 401/403/429.
+  - `web/src/state/auth.ts` — reactive `useAuth()` returning
+    `{ state: 'unknown' | 'logged-in' | 'logged-out', username,
+    login(), logout(), probe(), markLoggedOut() }`. Username persisted
+    in `localStorage` under `linkomat.current_username`. On logout the
+    LocalDb is closed via `closeDb()`.
+  - `web/src/views/LoginView.vue` — username + password form, error
+    line, submit disabled while pending. `data-test` hooks
+    `login-form`, `login-username`, `login-password`, `login-submit`,
+    `login-error`.
+  - `web/src/router.ts` — adds `/login` route.
+  - `web/src/App.vue` — auth guard: `watch` on `[state, route.path]`
+    redirects to `/login` when logged-out and elsewhere, redirects to
+    `/` when logged-in and on `/login`. Shows a centered "Loading…"
+    while `state === 'unknown'`. Triggered `probe()` on mount.
+  - `web/src/db/schema.ts` — replaces `OPFS_DB_FILENAME` / `OPFS_SIDECAR_PREFIX`
+    constants with `opfsDbFilename(username)` / `opfsSidecarPrefix(username)`
+    helpers. `CURRENT_SCHEMA_VERSION` stays at 2.
+  - `web/src/db/sqlite.ts` — `LocalDb` constructor takes a username;
+    `persist()` and `open()` read the per-user filename / sidecar
+    prefix from the helpers.
+  - `web/src/db/index.ts` — `useDb(username: string | null)` recreates
+    the singleton when the username changes. New `closeDb()` closes the
+    current instance, resets the state to `pending`.
+  - `web/src/views/HomeView.vue` — adds a temporary logout button in
+    the header (`home-meta`, `home-username`, `home-logout` selectors)
+    so a /settings route is not required for 9.1. `data-test` hook for
+    the username.
+  - `web/src/views/EditView.vue` — calls `useDb(username.value)`.
+  - `web/src/main.ts` — loads `./state/auth` for the side-effect of
+    installing the logout handler on the API client.
+- **Acceptance criteria:**
+  - `npm run build` clean (Node 24). Bundle 183.95 kB / gzip 65.74 kB.
+  - `make build-server` clean.
+  - `make api-test` baseline `24/25 / 126/129` (the documented
+    stateful rate-limit failure).
+  - Manual: log in as alice → cookies set, redirect to `/`,
+    HomeView shows local DB (empty).
+  - Manual: log out → cookies cleared, redirect to `/login`.
+  - Manual: clear cookies, reload → probe 401, stays on `/login`.
+  - Manual: log in as alice, create a local entry, log out, log in
+    as bob → HomeView shows empty list (separate OPFS file).
+  - Manual: log out bob, log back in as alice → HomeView shows the
+    entry.
+- **Notes:**
+  - `LocalDb` exposes `username` as a readonly field on the instance
+    so tests / debugging can inspect which user owns the DB.
+  - Auth state module loads before any view in `main.ts` so the
+    `setLogoutHandler(markLoggedOut)` call installs the handler
+    before the first API call.
+  - The `apiFetch` `tryRefresh` clears `refreshInFlight` in a
+    `finally` so a failed refresh doesn't poison the next attempt.
+  - Direct browser navigation to `/entries/:id` (refresh) currently
+    returns 401 (the mux matches `/entries/{id}` before the SPA
+    fallback). The SPA's pushState navigation is unaffected. A
+    proper fix would route on `Accept: text/html`; deferred.
+  - The "Username" / "Logout" header chip in HomeView is a temporary
+    placement. The plan's `/settings` route (with username display,
+    logout, version) is a separate step.
+
+#### Step 9.2 — Sync worker, cursor, reachability
+- **Status:** open
+- **What:**
+  - `web/src/db/schema.ts` — add `sync_state` table (single row, `cursor`).
+    Bump `CURRENT_SCHEMA_VERSION` to 3.
+  - `web/src/db/sqlite.ts` — `getCursor()`, `setCursor(c)`; `listDirtyEntries()`.
+  - `web/src/api/entries.ts` — `listEntries({ limit, offset, changed_since })`,
+    `getEntry(id)`, `putEntry(id, body)`, `deleteEntry(id)`. Map DTO times
+    to ISO strings.
+  - `web/src/sync/reachability.ts` — `useReachability()` returns a
+    reactive `online` ref. Polls `navigator.onLine` + `/healthz` every
+    10 s. Honors `online` / `offline` window events.
+  - `web/src/state/sync.ts` — reactive sync state ref:
+    `{ online, syncing, pendingCount, lastError, lastSyncAt,
+      persistentFailure }`. Action API: `syncNow()`, `clearError()`.
+  - `web/src/sync/worker.ts` — `useSync()` returning the worker.
+    `sync()` does: skip if reachability offline; skip if already syncing;
+    otherwise push dirty FIFO (one in-flight push), then pull (full pull
+    if cursor empty, else delta pull), then update cursor + clear dirty
+    flags. Keeps one in-flight sync job. Exposes `__linkomatSync` in dev.
+  - `web/src/main.ts` — start the sync worker; trigger on app start.
+  - `web/src/App.vue` — wire `online` event, visibility change, 5 min
+    interval, and manual trigger (button in 9.3).
+- **Acceptance criteria:**
+  - `npm run build` clean.
+  - `make build-server` clean.
+  - `make api-test` baseline unchanged.
+  - Manual: first launch (fresh OPFS) → full pull, server entries
+    appear in HomeView.
+  - Manual: create local entry → sync → entry appears on server.
+  - Manual: edit entry on server → sync → entry updates locally.
+  - Manual: delete entry on server → sync → entry disappears from
+    HomeView.
+  - Manual: kill server → reachability flips false, sync pauses; restart
+    server → reachability flips true, sync resumes.
+  - Manual: `__linkomatSync.syncNow()` runs a sync cycle on demand.
+- **Notes:** (filled in after implementation)
+
+#### Step 9.3 — Status UI, backoff, retry
+- **Status:** open
+- **What:**
+  - `web/src/sync/worker.ts` — backoff with jitter on push failures:
+    delay = `min(60s, 2^attempt) + jitter ±20%`; reset on first success.
+    Timer tracking `firstFailureAt`; `persistentFailure = now -
+    firstFailureAt > 5 min`.
+  - `web/src/state/sync.ts` — expose `persistentFailure` flag.
+  - `web/src/views/HomeView.vue` — header chip area: pending count
+    (`pending: N` when `pendingCount > 0`), sync state label
+    (`online` / `offline` / `syncing` / `error`). "Retry now" button
+    shown when `persistentFailure`. Per-row status dot in top-right:
+    green (synced), yellow (dirty), spinner (syncing).
+  - `web/src/views/EditView.vue` — header chip echo of pending count
+    + sync state for the current entry.
+- **Acceptance criteria:**
+  - `npm run build` clean.
+  - `make build-server` clean.
+  - Manual: create 3 entries offline → pending count shows 3; come
+    online → spinner during push, drops to 0.
+  - Manual: kill server → push fails, backoff visible (chip shows
+    `error`), after 5 min the "Retry now" button appears.
+  - Manual: per-row dot colors: green for synced, yellow for dirty,
+    spinner during sync.
+  - Manual: edit existing entry → dot turns yellow; sync → returns to
+    green.
+- **Notes:** (filled in after implementation)
+
+### Open questions
+- None.

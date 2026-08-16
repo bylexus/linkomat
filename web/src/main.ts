@@ -2,9 +2,7 @@ import { createApp } from 'vue';
 import VueVirtualScroller from 'vue-virtual-scroller';
 import App from './App.vue';
 import { router } from './router';
-import { useDb } from './db';
-
-useDb();
+import './state/auth';
 
 const app = createApp(App);
 app.use(router);

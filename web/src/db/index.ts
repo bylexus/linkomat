@@ -3,19 +3,41 @@ import { LocalDb, type DbState } from './sqlite';
 
 const dbState: Ref<DbState> = ref({ kind: 'pending' });
 let instance: LocalDb | null = null;
+let instanceUsername: string | null = null;
 
-export function useDb(): { state: Ref<DbState>; db: LocalDb | null } {
-  if (!instance) {
-    instance = new LocalDb();
-    instance.open().then((s) => {
-      dbState.value = s;
-      const expose = import.meta.env.DEV || import.meta.env.VITE_EXPOSE_DEV;
-      if (expose && s.kind === 'ready') {
-        exposeDev();
-      }
-    });
+export function useDb(
+  username: string | null
+): { state: Ref<DbState>; db: LocalDb | null } {
+  if (!username) {
+    return { state: dbState, db: null };
   }
+  if (instance && instanceUsername === username) {
+    return { state: dbState, db: instance };
+  }
+  if (instance) {
+    instance.close();
+    instance = null;
+  }
+  instanceUsername = username;
+  dbState.value = { kind: 'pending' };
+  instance = new LocalDb(username);
+  instance.open().then((s) => {
+    dbState.value = s;
+    const expose = import.meta.env.DEV || import.meta.env.VITE_EXPOSE_DEV;
+    if (expose && s.kind === 'ready') {
+      exposeDev();
+    }
+  });
   return { state: dbState, db: instance };
+}
+
+export function closeDb(): void {
+  if (instance) {
+    instance.close();
+    instance = null;
+    instanceUsername = null;
+    dbState.value = { kind: 'pending' };
+  }
 }
 
 function exposeDev(): void {
