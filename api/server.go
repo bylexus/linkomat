@@ -42,16 +42,24 @@ func NewServer(cfg *Config, meta *MetaDB, userDBs *UserDBs) *Server {
 }
 
 func (s *Server) routes() {
-	s.mux.Handle("POST /auth/login", http.HandlerFunc(s.handleLogin))
-	s.mux.Handle("POST /auth/refresh", http.HandlerFunc(s.handleRefresh))
-	s.mux.Handle("POST /auth/logout", http.HandlerFunc(s.handleLogout))
-	s.mux.Handle("GET /entries", http.HandlerFunc(s.handleEntriesList))
-	s.mux.Handle("GET /entries/{id}", http.HandlerFunc(s.handleEntryGet))
-	s.mux.Handle("PUT /entries/{id}", http.HandlerFunc(s.handleEntryPut))
-	s.mux.Handle("DELETE /entries/{id}", http.HandlerFunc(s.handleEntryDelete))
-	s.mux.Handle("GET /healthz", http.HandlerFunc(s.handleHealthz))
-	s.mux.Handle("GET /version", http.HandlerFunc(s.handleVersion))
+	apiH := s.apiHeaders
+	s.mux.Handle("POST /auth/login", apiH(http.HandlerFunc(s.handleLogin)))
+	s.mux.Handle("POST /auth/refresh", apiH(http.HandlerFunc(s.handleRefresh)))
+	s.mux.Handle("POST /auth/logout", apiH(http.HandlerFunc(s.handleLogout)))
+	s.mux.Handle("GET /entries", apiH(http.HandlerFunc(s.handleEntriesList)))
+	s.mux.Handle("GET /entries/{id}", apiH(http.HandlerFunc(s.handleEntryGet)))
+	s.mux.Handle("PUT /entries/{id}", apiH(http.HandlerFunc(s.handleEntryPut)))
+	s.mux.Handle("DELETE /entries/{id}", apiH(http.HandlerFunc(s.handleEntryDelete)))
+	s.mux.Handle("GET /healthz", apiH(http.HandlerFunc(s.handleHealthz)))
+	s.mux.Handle("GET /version", apiH(http.HandlerFunc(s.handleVersion)))
 	s.mux.Handle("/", http.HandlerFunc(s.handleWebAssets))
+}
+
+func (s *Server) apiHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store, private")
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) Handler() http.Handler {

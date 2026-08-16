@@ -1171,3 +1171,75 @@ refinements.
 
 **Next**: step 6 of §10 — web PWA scaffold + sql.js wrapper + OPFS
 persistence + `PRAGMA integrity_check` on startup.
+
+### Session 8 — fold Cache-Control Set calls into apiHeaders middleware (small cleanup)
+
+**Status**: done, committed.
+
+**What landed**:
+
+- `api/server.go`: new `apiHeaders` middleware (single `Set` call for
+  `Cache-Control: no-store, private`). `routes()` now wraps each
+  API route registration with it; the `handleWebAssets` catch-all
+  is left unwrapped.
+- `api/handlers_auth.go`: `writeJSON` and `handleLogout` no longer
+  set `Cache-Control` (covered by `apiHeaders`). `writeError` still
+  sets it — `authenticate()` writes error responses via `writeError`
+  *before* the mux dispatches, so those requests never pass through
+  `apiHeaders`.
+- `api/handlers_entries.go`: `handleEntryDelete` no longer sets
+  `Cache-Control` (covered by `apiHeaders`).
+
+**Net effect**: `Cache-Control` `Set` calls went from 4 scattered
+locations (session 7) to 2 — one in the `apiHeaders` middleware
+for the success path, one in `writeError` for the auth-failure
+path that bypasses the mux.
+
+**Discrepancies from the plan**: none.
+
+**Decisions made in this session**:
+
+- **Per-route wrapping, not a sub-mux.** Considered wrapping a
+  sub-`http.ServeMux` containing all API routes with `apiHeaders`
+  and mounting it on the main mux alongside `handleWebAssets`. Go's
+  `ServeMux` does not allow two `Handle("/", …)` registrations on
+  the same mux (conflicting patterns), so the sub-mux approach
+  would have needed either a non-`/` mount point (which the API
+  routes don't share) or a custom dispatcher. Per-route wrapping
+  is mechanical (9 lines) and the route table reads top-to-bottom
+  as "every API route is wrapped, the catch-all is not" — no need
+  to jump between a sub-mux and the main mux to verify coverage.
+- **Keep `Cache-Control` in `writeError`.** When `authenticate()`
+  rejects a request, it calls `writeError` to send a 401/403 and
+  returns `nil` from `authenticate`, which makes the outer
+  `middleware()` skip `next.ServeHTTP` entirely — so `apiHeaders`
+  never runs for those responses. Setting the header in
+  `writeError` covers the failure path without re-running the
+  middleware. Confirmed by smoke: `curl -i http://localhost:8080/entries`
+  with no auth → 401 + `Cache-Control: no-store, private` present.
+
+**Smoke checks performed**:
+
+- `grep -n "Cache-Control" api/*.go` → 2 hits (down from 4):
+  `api/server.go:60` (`apiHeaders`) and `api/handlers_auth.go:199`
+  (`writeError`).
+- `make build-server` clean; `go vet ./api/...` clean.
+- Manual curl matrix:
+  - `/healthz`, `/version` → `Cache-Control: no-store, private` ✓
+    (`apiHeaders`)
+  - `/`, `/assets/index-Drb3QEXr.js`, `/favicon.svg`,
+    `/manifest.webmanifest` → no `Cache-Control` header ✓
+    (web assets, not wrapped)
+  - `/entries` without auth → 401 + `Cache-Control: no-store,
+    private` ✓ (`writeError`)
+  - `/entries` with bogus bearer → 401 + `Cache-Control: no-store,
+    private` ✓ (`writeError`)
+- `make api-test` (auth + entries + meta, with `charlie`
+  deactivated): **24/25 requests pass, 126/129 assertions pass** —
+  identical to the session-7 baseline; the only failing request is
+  the documented stateful `login-rate-limited` test.
+- `make api-test-reset` wipes the captured token values from
+  `Local.bru`.
+
+**Next**: step 6 of §10 — web PWA scaffold + sql.js wrapper + OPFS
+persistence + `PRAGMA integrity_check` on startup.

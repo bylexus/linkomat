@@ -174,7 +174,6 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	clearAuthCookies(w, s.cfg)
-	w.Header().Set("Cache-Control", "no-store, private")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -191,7 +190,6 @@ func readRefreshToken(r *http.Request) string {
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "no-store, private")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }

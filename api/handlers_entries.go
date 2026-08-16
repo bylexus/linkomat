@@ -184,7 +184,6 @@ func (s *Server) handleEntryDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", "Could not delete entry.", err.Error())
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store, private")
 	w.WriteHeader(http.StatusNoContent)
 }
 
