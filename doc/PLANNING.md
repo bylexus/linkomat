@@ -31,11 +31,12 @@ For a fresh agent session continuing work on this project:
    - Light mode only.
    - Embedded web assets in the server binary.
 6. **Placeholders to confirm before module init**:
-   - Go module path: `github.com/<you>/linkomat/{api,cli,shared}`
-     — replace `<you>` with the actual GitHub owner on first commit.
+   - Go module path: `github.com/bylexus/linkomat/{api,cli,shared}`
+     (confirmed in step 1; existing `go.mod` files set this).
    - Default server URL in CLI: `https://app.linkomat.example.com`
      — update to the operator’s domain before any release.
-   - Default PWA theme/background colors: pick during web scaffold.
+   - Default PWA theme/background colors: confirmed in step 1 —
+     `theme_color=#2563eb`, `background_color=#ffffff` (light only).
 7. **Build order**: follow §10 strictly. Each step should end with a
    manual smoke check; no automated tests exist yet.
 
@@ -467,4 +468,91 @@ Order of implementation (manual dev loop, no CI, no tests):
 - Rich text editing / preview.
 - Dark mode.
 - GitHub Actions CI + automated tests.
-- Background sweepers for expired tokens.
+
+## 12. Progress Log
+
+Session-by-session state. Read this section first when resuming.
+
+### Session 1 — repo scaffold (step 1 of §10)
+
+**Status**: done, committed (`1cab067`).
+
+**What landed**:
+
+- `go.work` (Go 1.26.1) wires `./api`, `./cli`, `./shared`.
+- `Makefile` with targets `build-server`, `build-cli`, `web-build`,
+  `dev`, `tidy`, `all`, `clean`. npm-touching targets source
+  `$(HOME)/.nvm/nvm.sh` and run `nvm use` first.
+- `api/main.go` and `cli/main.go`: minimal stubs that print version and
+  `os.Exit(0)`.
+- `shared/shared.go`: single `Version` constant.
+- `web/` scaffold: Vite 8 + Vue 3 + TS 6 + `vite-plugin-pwa` 1.
+  - `package.json` pins: `vue@^3.5.41`, `@vitejs/plugin-vue@^6.0.8`,
+    `typescript@~6.0.3`, `vite@^8.2.1`, `vite-plugin-pwa@^1.3.0`,
+    `vue-tsc@^3.3.10`, `@types/node@^26.2.0`.
+  - `web/.nvmrc` pins node 24 LTS.
+  - PWA manifest: `name=Linkomat`, `short_name=Link`,
+    `theme_color=#2563eb`, `background_color=#ffffff`, light only.
+  - Icons `pwa-192x192.png`, `pwa-512x512.png`,
+    `pwa-maskable-512x512.png` generated from `favicon.svg` via `sips`
+    (placeholders — replace with real artwork later).
+  - `public/sqlite/.gitkeep` reserves the sql.js self-host directory
+    (filled in step 7).
+- `.gitignore` extended with `bin/`, `node_modules/`, `web/dist/`,
+  `data/`, `*.db*`, `web/*.tsbuildinfo`.
+
+**Decisions made in this session**:
+
+- Module path owner: `bylexus` (from the existing `go.mod` files).
+- PWA palette: blue `#2563eb` on white `#ffffff`. Change in
+  `web/vite.config.ts` when needed.
+- TypeScript pinned to 6.0.3 instead of the latest 7.0.2 — TS 7 removed
+  the `./lib/tsc` subpath export that `vue-tsc@3.3.10` (latest) needs.
+  Revisit when `vue-tsc` ships TS 7 support.
+
+**Smoke checks performed**:
+
+- `make build-server` → `./bin/linkomat-server` runs, prints version.
+- `make build-cli` → `./bin/linkomat` runs, prints version.
+- `make web-build` → `vue-tsc` + `vite build` succeed; PWA precache 12
+  entries.
+- `npm run dev` → Vite serves on `:5173`, page shows “Scaffold ok”.
+
+**Next**: step 2 of §10 — `shared/` DTOs (`Entry`, `AuthResponse`,
+`ErrorResponse`, cookie name constants, schema version constant,
+`currentSchemaVersion`). Wire them into `api/` and `cli/` as plain
+imports first; runtime server logic is step 3.
+
+### Session 2 — shared/ DTOs (step 2 of §10)
+
+**Status**: done, uncommitted.
+
+**What landed**:
+
+- `shared/entry.go`: `Entry` struct per §3.1 — fields `ID`, `Title`,
+  `URL`, `Note`, `Tags []string`, `CreatedAt`, `UpdatedAt`,
+  `DeletedAt *time.Time` with matching JSON tags.
+- `shared/auth.go`: `AuthResponse` per §5.4 — `AccessToken`,
+  `RefreshToken`, `ExpiresIn`, `Username`.
+- `shared/error.go`: `ErrorResponse` per §5.4 (RFC 7807-shaped) —
+  `Type`, `Title`, `Status`, `Detail`.
+- `shared/cookies.go`: `CookieAuth`, `CookieRefresh`, `CookiePathAuth`
+  (`/`), `CookiePathRefresh` (`/auth/refresh`) per §5.3.
+- `shared/schema.go`: `CurrentSchemaVersion = 1`.
+- `api/go.mod` and `cli/go.mod` now declare a `require` + local
+  `replace` directive for `./shared` so `make tidy` works on workspace
+  modules.
+- `api/main.go` and `cli/main.go` now import `shared` and use
+  `shared.Version` instead of a duplicated local constant.
+
+**Smoke checks performed**:
+
+- `make tidy` → clean across all three modules.
+- `make build-server` → `./bin/linkomat-server` prints
+  `linkomat-server 0.1.0`.
+- `make build-cli` → `./bin/linkomat` prints `linkomat 0.1.0`.
+- `go vet ./...` clean for each module.
+
+**Next**: step 3 of §10 — server meta DB, user CRUD CLI, password
+hashing, `/auth/login`, `/auth/refresh`, `/auth/logout`, login rate
+limit.

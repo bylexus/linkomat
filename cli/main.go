@@ -3,11 +3,11 @@ package main
 import (
 	"fmt"
 	"os"
+
+	"github.com/bylexus/linkomat/shared"
 )
 
-const version = "0.1.0"
-
 func main() {
-	fmt.Fprintf(os.Stderr, "linkomat %s\n", version)
+	fmt.Fprintf(os.Stderr, "linkomat %s\n", shared.Version)
 	os.Exit(0)
 }
