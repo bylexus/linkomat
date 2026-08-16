@@ -54,9 +54,6 @@ func (s *Server) ListenAndServe() error {
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-	if s.cfg.TLSCert != "" && s.cfg.TLSKey != "" {
-		return srv.ListenAndServeTLS(s.cfg.TLSCert, s.cfg.TLSKey)
-	}
 	return srv.ListenAndServe()
 }
 

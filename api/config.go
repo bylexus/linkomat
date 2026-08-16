@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -9,23 +8,19 @@ import (
 )
 
 type Config struct {
-	Listen        string
-	DataDir       string
-	TLSCert       string
-	TLSKey        string
-	CookieSecure  bool
-	BehindProxy   bool
-	CORSOrigins   []string
-	AccessTTL     int
-	RefreshTTL    int
+	Listen       string
+	DataDir      string
+	CookieSecure bool
+	BehindProxy  bool
+	CORSOrigins  []string
+	AccessTTL    int
+	RefreshTTL   int
 }
 
 func LoadConfig() (*Config, error) {
 	c := &Config{
 		Listen:       getenv("LINKOMAT_LISTEN", ":8080"),
 		DataDir:      getenv("LINKOMAT_DATA_DIR", "./data"),
-		TLSCert:      os.Getenv("LINKOMAT_TLS_CERT"),
-		TLSKey:       os.Getenv("LINKOMAT_TLS_KEY"),
 		CookieSecure: getenvBool("LINKOMAT_COOKIE_SECURE", true),
 		BehindProxy:  getenvBool("LINKOMAT_BEHIND_PROXY", false),
 		CORSOrigins:  splitCSV(os.Getenv("LINKOMAT_CORS_ORIGINS")),
@@ -43,12 +38,6 @@ func LoadConfig() (*Config, error) {
 	}
 	c.RefreshTTL = refreshTTL
 
-	if c.CookieSecure && c.TLSCert == "" && c.TLSKey == "" {
-		return nil, errors.New("LINKOMAT_COOKIE_SECURE=true requires LINKOMAT_TLS_CERT and LINKOMAT_TLS_KEY, or set LINKOMAT_COOKIE_SECURE=false")
-	}
-	if (c.TLSCert == "") != (c.TLSKey == "") {
-		return nil, errors.New("LINKOMAT_TLS_CERT and LINKOMAT_TLS_KEY must be set together")
-	}
 	return c, nil
 }
 

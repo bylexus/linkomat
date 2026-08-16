@@ -14,8 +14,11 @@ default `:8080` listen address.
   `deactivatableUsername` that has been deactivated with
   `linkomat-server user deactivate <name>`.
 
-The server must be started with `LINKOMAT_COOKIE_SECURE=false` (or
-behind TLS) so cookies work over plain HTTP.
+The server must be started with `LINKOMAT_COOKIE_SECURE=false` so
+cookies work over plain HTTP (curl from localhost can't follow the
+`Secure` flag). In a real deployment the server runs behind a
+TLS-terminating proxy and the default `LINKOMAT_COOKIE_SECURE=true`
+is the correct setting.
 
 ```
 make build-server

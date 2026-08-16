@@ -178,14 +178,18 @@ Env vars:
 
 - `LINKOMAT_LISTEN` (default `:8080`).
 - `LINKOMAT_DATA_DIR` (default `./data`, mode 0700).
-- `LINKOMAT_TLS_CERT` / `LINKOMAT_TLS_KEY` (optional).
 - `LINKOMAT_COOKIE_SECURE` (default true; cookies are always
   `SameSite=Strict`).
 - `LINKOMAT_BEHIND_PROXY` (trusts `X-Forwarded-For` if set).
 - `LINKOMAT_CORS_ORIGINS` (empty by default; same-origin served).
 
-Server refuses to start with `Secure` cookies and `LINKOMAT_TLS_*`
-unset.
+The server does **not** terminate TLS itself. It is expected to run
+behind a TLS-terminating reverse proxy (Caddy, nginx, Traefik, etc.)
+that handles HTTPS to the client. `LINKOMAT_BEHIND_PROXY` should be
+set so client IPs and forwarded headers are honored, and the
+`Secure` cookie flag can be kept at its `true` default since the
+proxy serves the cookies over HTTPS even though the server-to-proxy
+hop is plain HTTP.
 
 ### 5.3 Cookies
 
@@ -567,8 +571,8 @@ limit.
 **What landed**:
 
 - `api/config.go`: `Config` loaded from `LINKOMAT_*` env vars. Defaults
-  match §5.2. Refuses to start with `LINKOMAT_COOKIE_SECURE=true` and
-  no `LINKOMAT_TLS_*` set.
+  match §5.2 (later amended to drop `LINKOMAT_TLS_*` and the Secure/
+  TLS coupling — see Session 4).
 - `api/models.go`: `User`, `Token`, `SchemaVersion` GORM models per §3.2
   and §3.3.
 - `api/meta.go`: `MetaDB` opens `data/meta.db` with the §5.1 DSN
@@ -665,6 +669,47 @@ limit.
 - `make api-test-req REQ=refresh-invalid` passes twice in a row
   (verifies `bogusRefreshToken` persists across runs since it is no
   longer in `vars:secret`).
+
+**Next**: step 4 of §10 — server per-user DB cache, `GET/PUT/DELETE
+/entries`, soft-delete, `AutoMigrate` + `schema_version` for per-user
+DBs.
+
+### Session 4 — drop server-side TLS termination (small change)
+
+**Status**: done, uncommitted.
+
+**What changed**:
+
+- `api/config.go`: dropped `TLSCert` / `TLSKey` fields and the two
+  validations that coupled `LINKOMAT_COOKIE_SECURE` to TLS and that
+  required `LINKOMAT_TLS_CERT` and `LINKOMAT_TLS_KEY` to be set as a
+  pair. Server now starts cleanly with `LINKOMAT_COOKIE_SECURE=true`
+  and no TLS env vars.
+- `api/server.go`: `ListenAndServe` no longer branches on TLS config —
+  it always calls `srv.ListenAndServe()` on plain HTTP.
+- `doc/PLANNING.md` §5.2: removed `LINKOMAT_TLS_CERT` /
+  `LINKOMAT_TLS_KEY` env vars and the "refuses to start with Secure
+  cookies and `LINKOMAT_TLS_*` unset" rule. Added a paragraph noting
+  the server runs behind a TLS-terminating proxy and that the
+  `Secure` cookie flag stays at its `true` default.
+
+**Decision rationale**:
+
+- The server is always deployed behind a TLS-terminating proxy in v1
+  (per the deployment model). Keeping `ListenAndServeTLS` in the
+  binary meant an unused code path, env vars nobody sets, and a
+  startup check that fights operators who want the `Secure` cookie
+  flag without managing TLS certs in the Go process.
+- HSTS still ships on every response (`Strict-Transport-Security`
+  header, added in step 5) so the cookie path to the browser stays
+  HTTPS-only as long as the proxy passes the header through.
+
+**Smoke checks performed**:
+
+- `go build ./api` and `go vet ./api/...` clean.
+- Server starts with `LINKOMAT_COOKIE_SECURE=true` and no TLS env
+  vars; `POST /auth/login` returns 200 and the `Set-Cookie` headers
+  carry `Secure` as expected.
 
 **Next**: step 4 of §10 — server per-user DB cache, `GET/PUT/DELETE
 /entries`, soft-delete, `AutoMigrate` + `schema_version` for per-user
