@@ -74,6 +74,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("X-Request-Id", reqID)
+		w.Header().Set("Cache-Control", "no-store, private")
 		rw := &statusRecorder{ResponseWriter: w, status: 200}
 		ar := s.authenticate(rw, r.WithContext(ctx))
 		if ar != nil {

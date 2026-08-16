@@ -19,7 +19,6 @@ const (
 )
 
 func (s *Server) handleEntriesList(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Cache-Control", "no-store, private")
 	username := usernameFromCtx(r.Context())
 	udb, err := s.userDBs.For(username)
 	if err != nil {
@@ -74,7 +73,6 @@ func (s *Server) handleEntriesList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleEntryGet(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Cache-Control", "no-store, private")
 	username := usernameFromCtx(r.Context())
 	udb, err := s.userDBs.For(username)
 	if err != nil {
@@ -99,7 +97,6 @@ func (s *Server) handleEntryGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleEntryPut(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Cache-Control", "no-store, private")
 	username := usernameFromCtx(r.Context())
 	udb, err := s.userDBs.For(username)
 	if err != nil {
@@ -159,7 +156,6 @@ func (s *Server) handleEntryPut(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleEntryDelete(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Cache-Control", "no-store, private")
 	username := usernameFromCtx(r.Context())
 	udb, err := s.userDBs.For(username)
 	if err != nil {

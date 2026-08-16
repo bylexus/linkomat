@@ -18,7 +18,6 @@ type loginReq struct {
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Cache-Control", "no-store, private")
 	var req loginReq
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid-request", "Could not parse request body.", err.Error())
@@ -109,7 +108,6 @@ type refreshReq struct {
 }
 
 func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Cache-Control", "no-store, private")
 	refreshValue := readRefreshToken(r)
 	if refreshValue == "" {
 		writeError(w, http.StatusBadRequest, "invalid-request", "Refresh token is required.", "")
@@ -163,7 +161,6 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Cache-Control", "no-store, private")
 	refreshValue := readRefreshToken(r)
 	if refreshValue != "" {
 		if tok, err := s.meta.FindActiveToken(refreshValue, TokenTypeRefresh); err == nil {
