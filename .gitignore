@@ -8,3 +8,7 @@ data/
 *.db-journal
 *.db-wal
 *.db-shm
+.env
+caddy-data/
+cert.pem
+key.pem

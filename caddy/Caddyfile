@@ -1,0 +1,9 @@
+https://{$LAN_IP} {
+    tls /etc/caddy/cert.pem /etc/caddy/key.pem
+    reverse_proxy linkomat:8080
+}
+
+https:// {
+    tls /etc/caddy/cert.pem /etc/caddy/key.pem
+    reverse_proxy linkomat:8080
+}
