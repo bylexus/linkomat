@@ -30,7 +30,11 @@ web/src/
 │   ├── auth.ts            # login / logout / probe
 │   └── entries.ts         # listEntries / getEntry / putEntry / deleteEntry + DTOs
 ├── components/
-│   └── AppFooter.vue      # copyright + alexi.ch link + /about link; rendered below RouterView on every route
+│   ├── AppFooter.vue      # copyright + alexi.ch link + /about link; rendered below RouterView on every route
+│   └── icons/
+│       ├── LogoutIcon.vue   # inline-SVG logout glyph used by the icon-only logout button on HomeView
+│       ├── OnlineIcon.vue   # inline-SVG wifi glyph for the online sync state
+│       └── OfflineIcon.vue  # inline-SVG wifi-glyph-with-slash for the offline sync state
 ├── db/
 │   ├── index.ts           # useDb(username) singleton; closeDb(); dev global
 │   ├── schema.ts          # CURRENT_SCHEMA_VERSION, DDL, OPFS filename helpers

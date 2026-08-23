@@ -9,6 +9,9 @@ import { useAuth } from '../state/auth';
 import { useSyncState } from '../state/sync';
 import { usePreservedHomeState } from '../state/homeState';
 import { syncNow } from '../sync/engine';
+import LogoutIcon from '../components/icons/LogoutIcon.vue';
+import OnlineIcon from '../components/icons/OnlineIcon.vue';
+import OfflineIcon from '../components/icons/OfflineIcon.vue';
 import type { Entry } from '../db/sqlite';
 
 const { username, logout } = useAuth();
@@ -191,7 +194,37 @@ function rowDotClass(entry: Entry): string {
 <template>
   <main class="home">
     <header class="home-header">
-      <h1 class="home-title">Linkomat</h1>
+      <div class="home-title-row">
+        <h1 class="home-title">Linkomat</h1>
+        <div class="home-status-group" data-test="home-status-chip">
+          <span
+            v-if="syncState.pendingCount > 0"
+            class="sync-status-pending"
+            data-test="home-status-pending"
+          >
+            pending: {{ syncState.pendingCount }}
+          </span>
+          <span
+            class="sync-status-state"
+            :class="stateLabelClass"
+            data-test="home-status-state"
+            :aria-label="stateLabel"
+          >
+            <OnlineIcon v-if="syncState.online && !syncState.syncing && !syncState.lastError" />
+            <OfflineIcon v-else-if="!syncState.online && !syncState.syncing && !syncState.lastError" />
+            <template v-else>{{ stateLabel }}</template>
+          </span>
+          <button
+            v-if="syncState.persistentFailure"
+            type="button"
+            class="sync-status-retry"
+            data-test="home-status-retry"
+            @click="onRetry"
+          >
+            Retry now
+          </button>
+        </div>
+      </div>
       <input
         ref="searchInput"
         v-model="search"
@@ -202,38 +235,17 @@ function rowDotClass(entry: Entry): string {
         spellcheck="false"
         data-test="home-search"
       />
-      <div class="sync-status" data-test="home-status-chip">
-        <span
-          v-if="syncState.pendingCount > 0"
-          class="sync-status-pending"
-          data-test="home-status-pending"
-        >
-          pending: {{ syncState.pendingCount }}
-        </span>
-        <span
-          class="sync-status-state"
-          :class="stateLabelClass"
-          data-test="home-status-state"
-        >{{ stateLabel }}</span>
-        <button
-          v-if="syncState.persistentFailure"
-          type="button"
-          class="sync-status-retry"
-          data-test="home-status-retry"
-          @click="onRetry"
-        >
-          Retry now
-        </button>
-      </div>
       <div class="home-meta">
         <span class="home-username" data-test="home-username">{{ username }}</span>
         <button
           type="button"
           class="logout-btn"
+          aria-label="Logout"
+          title="Logout"
           data-test="home-logout"
           @click="onLogout"
         >
-          Logout
+          <LogoutIcon />
         </button>
       </div>
     </header>
@@ -338,6 +350,22 @@ function rowDotClass(entry: Entry): string {
   font-size: 1.5rem;
 }
 
+.home-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.home-status-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .search {
   width: 100%;
   padding: 0.5rem 0.75rem;
@@ -378,14 +406,6 @@ function rowDotClass(entry: Entry): string {
 
 .logout-btn:hover {
   background: #f3f4f6;
-}
-
-.sync-status {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.875rem;
-  flex-wrap: wrap;
 }
 
 .sync-status-pending {
