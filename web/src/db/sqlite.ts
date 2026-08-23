@@ -190,20 +190,33 @@ export class LocalDb {
     return this.db;
   }
 
-  listEntries(): Entry[] {
+  listEntries(
+    opts: { cursor?: { updated_at: string; id: string } | null } = {}
+  ): { entries: Entry[]; hasMore: boolean } {
     if (!this.db) throw new Error('db not open');
+    const cursor = opts.cursor ?? null;
+    const cursorClause = cursor
+      ? ' AND ((updated_at < ?) OR (updated_at = ? AND id > ?))'
+      : '';
+    const cursorParams: string[] = cursor
+      ? [cursor.updated_at, cursor.updated_at, cursor.id]
+      : [];
     const stmt = this.db.prepare(`
       SELECT id, title, url, note, tags, created_at, updated_at, deleted_at, local_dirty_at, base_updated_at
       FROM entries
-      WHERE deleted_at IS NULL
+      WHERE deleted_at IS NULL${cursorClause}
       ORDER BY updated_at DESC, id ASC
+      LIMIT 51
     `);
+    if (cursorParams.length > 0) stmt.bind(cursorParams);
     const out: Entry[] = [];
     while (stmt.step()) {
       out.push(rowToEntry(stmt.getAsObject() as EntryRow));
     }
     stmt.free();
-    return out;
+    const hasMore = out.length === 51;
+    if (hasMore) out.pop();
+    return { entries: out, hasMore };
   }
 
   getEntry(id: string): Entry | null {
@@ -293,25 +306,37 @@ export class LocalDb {
     notifyDbChange();
   }
 
-  searchEntries(query: string): Entry[] {
+  searchEntries(
+    query: string,
+    opts: { cursor?: { updated_at: string; id: string } | null } = {}
+  ): { entries: Entry[]; hasMore: boolean } {
     if (!this.db) throw new Error('db not open');
     const fts = toFtsQuery(query);
-    if (!fts) return this.listEntries();
+    if (!fts) return this.listEntries(opts);
+    const cursor = opts.cursor ?? null;
+    const cursorClause = cursor
+      ? ' AND ((e.updated_at < ?) OR (e.updated_at = ? AND e.id > ?))'
+      : '';
     const stmt = this.db.prepare(`
       SELECT e.id, e.title, e.url, e.note, e.tags, e.created_at, e.updated_at, e.deleted_at, e.local_dirty_at, e.base_updated_at
       FROM entries_fts f, entries e
       WHERE f.docid = e.rowid
         AND entries_fts MATCH ?
-        AND e.deleted_at IS NULL
+        AND e.deleted_at IS NULL${cursorClause}
       ORDER BY e.updated_at DESC, e.id ASC
+      LIMIT 51
     `);
-    stmt.bind([fts]);
+    const params: string[] = [fts];
+    if (cursor) params.push(cursor.updated_at, cursor.updated_at, cursor.id);
+    stmt.bind(params);
     const out: Entry[] = [];
     while (stmt.step()) {
       out.push(rowToEntry(stmt.getAsObject() as EntryRow));
     }
     stmt.free();
-    return out;
+    const hasMore = out.length === 51;
+    if (hasMore) out.pop();
+    return { entries: out, hasMore };
   }
 
   close(): void {

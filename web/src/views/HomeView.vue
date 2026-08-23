@@ -1,15 +1,13 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { onBeforeRouteLeave, useRouter } from 'vue-router';
-import { RecycleScroller } from 'vue-virtual-scroller';
-import 'vue-virtual-scroller/dist/vue-virtual-scroller.css';
 import { useDb } from '../db';
 import { DB_CHANGE_EVENT } from '../db/sqlite';
 import { uuidv7 } from '../utils/uuid';
 import { normalizeUrl } from '../utils/url';
 import { useAuth } from '../state/auth';
 import { useSyncState } from '../state/sync';
-import { usePreservedHomeSearch } from '../state/homeSearch';
+import { usePreservedHomeState } from '../state/homeState';
 import { syncNow } from '../sync/engine';
 import type { Entry } from '../db/sqlite';
 
@@ -19,12 +17,18 @@ const router = useRouter();
 
 const syncState = useSyncState();
 
-const search = ref('');
+const {
+  query: search,
+  entries,
+  cursor,
+  hasMore,
+  scrollY: preservedScrollY,
+  isPreserved,
+} = usePreservedHomeState();
+
 const debouncedSearch = ref('');
 const searchInput = ref<HTMLInputElement | null>(null);
-const entries = ref<Entry[]>([]);
-
-const preservedHomeSearch = usePreservedHomeSearch();
+const isLoadingMore = ref(false);
 
 let debounceTimer: number | null = null;
 watch(search, (q) => {
@@ -37,13 +41,52 @@ watch(search, (q) => {
 function reload(): void {
   if (!db || state.value.kind !== 'ready') {
     entries.value = [];
+    cursor.value = null;
+    hasMore.value = false;
     return;
   }
   const q = debouncedSearch.value.trim();
-  entries.value = q ? db.searchEntries(q) : db.listEntries();
+  const page = q ? db.searchEntries(q) : db.listEntries();
+  entries.value = page.entries;
+  hasMore.value = page.hasMore;
+  cursor.value =
+    page.hasMore && page.entries.length > 0
+      ? {
+          updated_at: page.entries[page.entries.length - 1].updated_at,
+          id: page.entries[page.entries.length - 1].id,
+        }
+      : null;
 }
 
+async function loadMore(): Promise<void> {
+  if (isLoadingMore.value || !hasMore.value) return;
+  if (!db || state.value.kind !== 'ready') return;
+  if (!cursor.value) return;
+  isLoadingMore.value = true;
+  try {
+    const q = debouncedSearch.value.trim();
+    const opts = { cursor: cursor.value };
+    const page = q ? db.searchEntries(q, opts) : db.listEntries(opts);
+    entries.value = [...entries.value, ...page.entries];
+    hasMore.value = page.hasMore;
+    cursor.value =
+      page.hasMore && page.entries.length > 0
+        ? {
+            updated_at: page.entries[page.entries.length - 1].updated_at,
+            id: page.entries[page.entries.length - 1].id,
+          }
+        : null;
+  } finally {
+    isLoadingMore.value = false;
+  }
+}
+
+let skipNextReload = 0;
 watch([debouncedSearch, state, username], () => {
+  if (skipNextReload > 0) {
+    skipNextReload--;
+    return;
+  }
   reload();
 });
 
@@ -51,18 +94,30 @@ function onChange(): void {
   reload();
 }
 
-onBeforeRouteLeave((to) => {
-  if (to.path.startsWith('/entries/')) {
-    preservedHomeSearch.value = search.value;
+onBeforeRouteLeave(async (to) => {
+  if (!to.path.startsWith('/entries/')) return;
+  if (debounceTimer !== null) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+    debouncedSearch.value = search.value;
+    await nextTick();
   }
+  preservedScrollY.value = window.scrollY;
+  isPreserved.value = true;
 });
 
-onMounted(() => {
-  if (preservedHomeSearch.value) {
-    search.value = preservedHomeSearch.value;
-    preservedHomeSearch.value = '';
+onMounted(async () => {
+  if (isPreserved.value) {
+    debouncedSearch.value = search.value;
+    isPreserved.value = false;
+    skipNextReload = state.value.kind === 'ready' ? 1 : 2;
+    await nextTick();
+    setTimeout(() => {
+      window.scrollTo(0, preservedScrollY.value);
+    }, 50);
+  } else {
+    reload();
   }
-  reload();
   window.addEventListener(DB_CHANGE_EVENT, onChange);
   searchInput.value?.focus();
 });
@@ -183,16 +238,11 @@ function rowDotClass(entry: Entry): string {
       <p v-if="entries.length === 0" class="empty" data-test="home-empty">
         {{ debouncedSearch.trim() ? 'No matches.' : 'No entries yet.' }}
       </p>
-      <RecycleScroller
-        v-else
-        :items="entries"
-        :item-size="96"
-        key-field="id"
-        class="list"
-        data-test="home-list"
-      >
-        <template #default="{ item }">
+      <template v-else>
+        <div class="list" data-test="home-list">
           <div
+            v-for="item in entries"
+            :key="item.id"
             class="row"
             data-test="home-row"
             :data-test-id="item.id"
@@ -214,8 +264,18 @@ function rowDotClass(entry: Entry): string {
               <span v-for="tag in item.tags" :key="tag" class="tag-chip">{{ tag }}</span>
             </div>
           </div>
-        </template>
-      </RecycleScroller>
+        </div>
+        <button
+          v-if="hasMore"
+          type="button"
+          class="load-more"
+          :disabled="isLoadingMore"
+          data-test="home-load-more"
+          @click="loadMore"
+        >
+          {{ isLoadingMore ? 'Loading…' : 'Load more' }}
+        </button>
+      </template>
     </section>
 
     <button
@@ -344,10 +404,29 @@ function rowDotClass(entry: Entry): string {
 }
 
 .list {
-  height: calc(100vh - 13rem);
-  border: 1px solid #e5e7eb;
+  border-top: 1px solid #e5e7eb;
+}
+
+.load-more {
+  display: block;
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 0.625rem 1rem;
+  font-size: 0.875rem;
+  background: #ffffff;
+  color: #2563eb;
+  border: 1px solid #d1d5db;
   border-radius: 0.5rem;
-  overflow: hidden;
+  cursor: pointer;
+}
+
+.load-more:hover:not(:disabled) {
+  background: #f3f4f6;
+}
+
+.load-more:disabled {
+  color: #6b7280;
+  cursor: not-allowed;
 }
 
 .row {

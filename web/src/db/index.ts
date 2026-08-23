@@ -45,8 +45,13 @@ function exposeDev(): void {
   const db = instance;
   (window as unknown as { __linkomatDb: unknown }).__linkomatDb = {
     raw: db.getRawDb(),
-    listEntries: () => db.listEntries(),
-    searchEntries: (q: string) => db.searchEntries(q),
+    listEntries: (
+      opts?: { cursor?: { updated_at: string; id: string } | null }
+    ) => db.listEntries(opts),
+    searchEntries: (
+      q: string,
+      opts?: { cursor?: { updated_at: string; id: string } | null }
+    ) => db.searchEntries(q, opts),
     getEntry: (id: string) => db.getEntry(id),
     upsertEntry: (input: {
       id: string;

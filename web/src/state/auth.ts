@@ -2,6 +2,7 @@ import { ref, computed, type Ref, type ComputedRef } from 'vue';
 import { login as apiLogin, logout as apiLogout, probe as apiProbe } from '../api/auth';
 import { setLogoutHandler } from '../api/client';
 import { closeDb } from '../db';
+import { clearPreservedHomeState } from './homeState';
 
 export const USERNAME_STORAGE_KEY = 'linkomat.current_username';
 
@@ -33,6 +34,7 @@ function markLoggedOut(): void {
   username.value = null;
   writeStoredUsername(null);
   closeDb();
+  clearPreservedHomeState();
   state.value = 'logged-out';
 }
 

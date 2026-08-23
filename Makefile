@@ -28,7 +28,7 @@ IMAGE_SHA   := $(REGISTRY)/$(IMAGE_NAME):$(GIT_SHA)
 
 BUILDX_BASE := --platform $(PLATFORMS) --tag $(IMAGE) --tag $(IMAGE_SHA) --progress plain
 
-.PHONY: help build-server build-server-expose-dev build-cli web-build web-embed image-build image-push dev dev-server clean tidy all api-test api-test-auth api-test-req api-test-reset
+.PHONY: help build-server build-server-expose-dev build-cli web-build web-embed web-embed-expose-dev image-build image-push dev dev-server clean tidy all api-test api-test-auth api-test-req api-test-reset
 
 help:
 	@echo "Targets:"
@@ -55,10 +55,11 @@ help:
 	@echo "  dev              Run the web dev server and the Go server concurrently"
 	@echo "                     (login is broken here — Vite dev server has no proxy;"
 	@echo "                     use 'make dev-server' for a working end-to-end loop)"
-	@echo "  dev-server       Build the web SPA, embed it into the API binary, and run"
-	@echo "                     'go run ./api' on :8080. No Vite HMR, but the login"
-	@echo "                     flow + cookies + sync actually work because everything"
-	@echo "                     is served from the same origin."
+	@echo "  dev-server       Build the web SPA (--mode expose-dev), embed it into the API"
+	@echo "                     binary, and run 'go run ./api' on :8080. No Vite HMR, but the"
+	@echo "                     login flow + cookies + sync actually work because everything"
+	@echo "                     is served from the same origin. Exposes window.__linkomatDb"
+	@echo "                     for manual DevTools seeding, like 'make dev'."
 	@echo "  tidy             Run go mod tidy across all modules"
 	@echo "  api-test         Run auth + entries + meta Bruno collections against $(BRUNO_BASEURL)"
 	@echo "                     (server must already be running; override with"
@@ -103,6 +104,13 @@ web-embed: web-build
 	@cp -R $(WEB_DIR)/dist/. $(API_DIR)/web_dist/
 	@echo "Embedded $$(ls $(API_DIR)/web_dist | wc -l | tr -d ' ') top-level files into api/web_dist/"
 
+web-embed-expose-dev:
+	cd $(WEB_DIR) && bash -lc '$(NVM_LOAD) && $(NPM) run build -- --mode expose-dev'
+	@rm -rf $(API_DIR)/web_dist
+	@mkdir -p $(API_DIR)/web_dist
+	@cp -R $(WEB_DIR)/dist/. $(API_DIR)/web_dist/
+	@echo "Embedded $$(ls $(API_DIR)/web_dist | wc -l | tr -d ' ') top-level files into api/web_dist/ (expose-dev)"
+
 image-build:
 	docker buildx build $(BUILDX_BASE) .
 
@@ -117,8 +125,8 @@ dev:
 	$(GO) run ./$(API_DIR) & \
 	wait
 
-dev-server: web-embed
-	@echo "Starting Go server on http://localhost:8080 (embedded SPA, no Vite HMR)"
+dev-server: web-embed-expose-dev
+	@echo "Starting Go server on http://localhost:8080 (embedded SPA, no Vite HMR, expose-dev build)"
 	$(GO) run ./$(API_DIR) serve
 
 tidy:
