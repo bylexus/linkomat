@@ -1,0 +1,24 @@
+# Server-Side Apply: Gateway does not support strategic-merge-patch.
+# Apply with: kubectl apply --server-side --field-manager=linkomat-add -f 90-gateway-linkomat-listener.yaml
+# The field-manager isolates the new listener's field ownership from the
+# existing listeners (owned by the kubectl client-side manager).
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: kube002-gateway
+  namespace: envoy-gateway-system
+spec:
+  listeners:
+    - name: linkomat-https
+      port: 443
+      protocol: HTTPS
+      hostname: linkomat.alexi.ch
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - group: ""
+            kind: Secret
+            name: linkomat-tls
+      allowedRoutes:
+        namespaces:
+          from: All

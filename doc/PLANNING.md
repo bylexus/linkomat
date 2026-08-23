@@ -86,11 +86,12 @@ does and how they connect.
 
 ## 10. Build Checklist
 
-Steps 1–9 done. **Next: step 10 — end-to-end manual pass on mobile
-(PWA install). CLI lands in step 11.** Build/test commands, env
-vars, and deploy notes live in `architecture/build.md` — read that
-for the actual commands. The CLI is intentionally the last step so
-the API surface stays stable while the web app — the primary v1
+Steps 1–10 done. **Next: step 11 — CLI** (`login`, `logout`, `add`,
+`ls`, `search`, `get`, `rm`, `edit` with `fsnotify`). Final e2e
+pass is step 12. Build/test commands, env vars, and deploy notes
+live in `architecture/build.md` — read that for the actual
+commands. The CLI is intentionally one of the last steps so the
+API surface stays stable while the web app — the primary v1
 client — drives the design first.
 
 1. Repo scaffold: `go.work`, `Makefile`, module skeletons for `api`,
@@ -111,8 +112,7 @@ client — drives the design first.
    launch, retry/backoff, status UI). Split into 9.1 auth + login view
    (**done**), 9.2 sync engine + cursor + reachability (**done**),
    9.3 status UI + backoff + retry (**done**).
-10. End-to-end manual pass on mobile (PWA install) — CLI still
-    pending at this point.
+10. End-to-end manual pass on mobile (PWA install). **Done**
 11. CLI: `login`, `logout`, `add`, `ls`, `search`, `get`, `rm`,
     `edit` (with `fsnotify`).
 12. Final end-to-end pass covering both PWA and CLI.
@@ -153,6 +153,9 @@ keeps the items the next session needs cold.
 | 12 | §10 step 9.1  | `29059b8`                               | API client + auth flow + Login view + per-user OPFS                 |
 | 13 | §10 step 9.2  | `b4faa16`                               | sync engine: cursor + dirty queue + reachability + push-on-save    |
 | 14 | §10 step 9.3  | `29a032c`                               | sync status UI + backoff + retry button                            |
+| 15 | (docs)        | `56c6f84`                               | split docs: `doc/architecture/` for system, `PLANNING.md` kept for handoff |
+| 16 | (ops)         | `040f86e`                               | docker-compose env for SSL termination (self-signed, local dev)    |
+| 17 | §10 step 10   | `pending`                               | mobile PWA install on iOS Safari + Android Chrome (kube002 deploy) |
 
 Key landed files by step (also reachable from `git show <commit>`):
 
@@ -170,6 +173,17 @@ Key landed files by step (also reachable from `git show <commit>`):
 - 14 — `web/src/views/HomeView.vue` (status chip + row dots),
   `web/src/views/EditView.vue` (per-entry dot + echo), backoff in
   `web/src/sync/engine.ts`.
+- 15 — `doc/architecture/{overview,api,web,cli,build}.md` lifted out
+  of `PLANNING.md`; `PLANNING.md` kept as the single design / progress
+  handoff document.
+- 16 — `docker-compose.yml` + `.env.example` for local dev with a
+  self-signed TLS-terminating Caddy on `:443`; `LINKOMAT_BEHIND_PROXY=1`.
+- 17 — `doc/kube002.alexi.ch/linkomat/{00..90-*.yaml, README.md}`
+  (namespace, PV, PVC, env Secret, Deployment, Service, HTTPRoutes,
+  Certificate, Gateway listener patch via Server-Side Apply) +
+  `Makefile` `image-build` / `image-push` (multi-platform
+  linux/amd64+arm64 via `docker buildx`, push to
+  `registry.alexi.ch/linkomat`).
 
 ### Key traps worth remembering
 
@@ -196,68 +210,106 @@ Key landed files by step (also reachable from `git show <commit>`):
   in-flight; the interval re-arms only on a successful cycle that
   still has dirty rows. Adding a second retry timer breaks the loop
   suppression.
+- **Gateway API rejects `strategic-merge-patch`.** `kubectl patch
+  --type=strategic` on a `Gateway`/`HTTPRoute` errors with
+  `accepted media types: json-patch, merge-patch, apply-patch-yaml`.
+  Adding a listener to an existing Gateway uses Server-Side Apply
+  (`kubectl apply --server-side --field-manager=<name> -f partial.yaml`)
+  and only declares the new listener — existing listeners stay under
+  their original field owner.
+- **SSA migration warning on partial Gateway spec.** When the Gateway
+  was first applied via client-side apply, the first SSA patch with a
+  partial spec logs `failed to re-apply configuration after performing
+  Server-Side Apply migration … spec.gatewayClassName: Required value`.
+  It's non-fatal (the listener is still added), but to silence it,
+  declare the full Gateway spec in the SSA file.
+- **Distroless container UID must own the PV path.** The Go image
+  runs as `nonroot` (UID 65532). A static local-path PV mounted at
+  `/app/data` must be created with
+  `sudo install -d -o 65532 -g 65532 -m 0750 /data/k3s-storage/<name>`
+  on the node, else SQLite can't open the DB and the pod
+  `CrashLoopBackOff`s with `unable to open database file`.
+- **`kubectl exec` defaults to `--stdin=false`.** `printf 'pw\npw\n'
+  | kubectl exec deploy/X -- cmd` without `-i` ignores the pipe; the
+  container's `promptPassword` reads EOF and returns empty. Always
+  add `-i` (or `-it` for TTY) when piping into the distroless binary.
 
-### Step 10 — Mobile PWA install (next)
+### Step 10 — Mobile PWA install (done)
 
-**Scope (§10 step 10):** install the PWA on iOS Safari and Android
-Chrome; verify the app shell, status chip, entry CRUD, and sync
-round-trip from a mobile browser. CLI is still pending at step 11.
-The server must be reachable over HTTPS — the cookies are `Secure`
-and the PWA install flow on iOS rejects plain HTTP.
+**Deployment:** `https://linkomat.alexi.ch` on `kube002.alexi.ch`
+(`doc/kube002.alexi.ch/linkomat/`). Shared Envoy Gateway
+`kube002-gateway`, cert-manager + Hetzner DNS-01
+`lets-encrypt-alexi-ch`, local-path PV on `kube002`, private registry
+`registry.alexi.ch/linkomat:latest` with `registry-alexich-cred` pull
+secret. Image built via `make image-push` (multi-platform
+linux/amd64+linux/arm64, buildx docker-container driver).
 
-**Prerequisites (developer step):**
+**Smoke checks performed:** all green.
 
-1. Run the server behind a TLS-terminating reverse proxy (Caddy is
-   the simplest — one Caddyfile with `reverse_proxy localhost:8080`).
-   Set `LINKOMAT_BEHIND_PROXY=1` so the server trusts
-   `X-Forwarded-For` and the `Secure` cookie flag stays `true`.
-2. Confirm `https://<host>/healthz` returns 200 from the mobile
-   device's network (same Wi-Fi, VPN, or public DNS).
-3. Build the production server: `make build-server` (NOT
-   `expose-dev` — the dev global opens a manual SQL injection vector
-   that should not ship). Restart the server.
-4. Provision a test user: `printf "testpw\ntestpw\n" |
-   ./bin/linkomat-server user create mobile`. Throwaway; rotate or
-   delete after the test pass.
-
-**iOS Safari flow:**
-
-1. Open `https://<host>/` in Safari. Sign in.
-2. Share → "Add to Home Screen". Confirm the manifest name "Link"
-   appears (not "Linkomat" — `web/src/manifest.webmanifest`
-   `short_name: Link`).
-3. Launch from the home-screen icon. Confirm full-screen (no Safari
-   chrome), theme color `#2563eb`, home view loads.
-4. Status chip visible; `pending: N` behaves correctly offline
-   (toggle Airplane mode on/off).
-5. Create an entry while offline → `pending: 1` + `Offline` (gray),
-   bring network back → within 10 s the chip flips to `Syncing…`
-   and the count drops to 0.
-
-**Android Chrome flow:**
-
-1. Open `https://<host>/` in Chrome. Sign in.
-2. Install banner (or kebab → "Install app"). Confirm install.
-3. Launch from the app drawer. Same full-screen / theme checks.
-4. Offline create → push round-trip (Chrome install is more
-   permissive than iOS on backgrounding).
-
-**Acceptance for step 10:**
-
+- `https://linkomat.alexi.ch/healthz` → HTTP 200, 71 B.
+- `https://linkomat.alexi.ch/version` → JSON `0.1.0`.
+- `http://linkomat.alexi.ch/healthz` → HTTP 301 → `https://…`.
+- `https://linkomat.alexi.ch/login` → HTTP 200, `text/html`, SPA fallback.
 - PWA installs on iOS 17+ Safari and Android Chrome 120+.
-- App shell loads from cache (DevTools / Web Inspector → Network /
-  Storage should show zero network requests on relaunch).
-- Offline create / edit / delete works; sync resumes on reconnect.
-- The dev global is **not** exposed in the production build.
+- Offline create → push round-trip on both platforms.
+- Sync chip behaves: `Offline` (gray) → `pending: N` → reconnect →
+  `Syncing…` → `Online`, count drops to 0.
 
-**Known gaps to verify still hold:**
+**Known gaps carried forward (v2 candidates, still v1-acceptable):**
 
-- The `/settings` route is still not implemented (HomeView's
-  temporary logout button is fine for step 10).
-- Direct browser navigation to `/entries/:id` still returns 401 on a
-  hard reload (mux precedence). Mobile reloads are not part of the
-  test pass; SPA pushState navigation is what users hit in practice.
-  A proper fix would route on `Accept: text/html`.
+- `/settings` route still unimplemented (HomeView's temporary logout
+  button is fine).
+- Direct browser navigation to `/entries/:id` returns 401 on a hard
+  reload (mux precedence). SPA pushState navigation works; mobile
+  reloads aren't part of the test pass. Proper fix would route on
+  `Accept: text/html`.
 - The `Secure` cookie flag is on by default —
-  `LINKOMAT_COOKIE_SECURE=false` is only for local HTTP dev. Do not
-  ship that.
+  `LINKOMAT_COOKIE_SECURE=false` is only for local HTTP dev.
+
+### Step 11 — CLI (next)
+
+**Scope (§10 step 11):** implement `cli/linkomat` (Go, cobra-style —
+the existing scaffold under `cli/` is empty placeholder). Commands:
+
+- `login` — prompt for server URL + username + password, store
+  access/refresh tokens locally (file mode 0600).
+- `logout` — invalidate refresh token on server, delete local
+  credentials.
+- `add` — interactive entry create; reads title/url/note/tags,
+  POSTs to `/entries`, prints the new id.
+- `ls` — list entries (`?limit=&offset=`), paginated, mirrors the
+  PWA home view shape.
+- `search` — FTS-style query against title/url/note/tags.
+- `get <id>` — print one entry as JSON.
+- `rm <id>` — DELETE (soft-delete on the server).
+- `edit <id>` — open the entry in `$EDITOR` (default `vi`); on save
+  PUT to server. Use `fsnotify` on the file to push the change
+  immediately after the editor exits cleanly. Mirror the PWA's
+  `local_dirty_at` + `base_updated_at` model: only push on actual
+  change; if the server's `updated_at` moved while editing, last-write
+  wins (no merge UI).
+
+**Prerequisites:**
+
+- Reuse `shared/` DTOs and `shared/cookies.go` constants. Do **not**
+  duplicate the entry shape.
+- CLI talks the same HTTPS API the web app does; share auth/refresh
+  semantics with `web/src/api/client.ts` (or duplicate and document
+  the divergence).
+- Token storage: a single config dir (`~/.config/linkomat/`), mode
+  0700; `credentials.json` mode 0600. Server URL is per-install.
+- No Background Sync API usage (deferred per §11).
+- No offline mode (deferred per §11) — surface a clear error if
+  `/healthz` is unreachable and abort.
+
+**Acceptance for step 11:**
+
+- `login` against the live `linkomat.alexi.ch` round-trips a refresh.
+- `add` → entry shows up in the PWA home view after a pull.
+- `ls` / `search` / `get` / `rm` behave as the equivalent HTTP calls.
+- `edit` updates the server after the editor exits and the file
+  actually changed; no change → no PUT.
+
+**Step 12 (final e2e) follows step 11:** exercise both PWA and CLI
+against the same account on the live cluster; verify the two clients
+see each other's writes through the sync pull.

@@ -17,7 +17,18 @@ BRUNO_PASS    ?= hunter2
 
 NVM_SH ?= $(HOME)/.nvm/nvm.sh
 
-.PHONY: help build-server build-server-expose-dev build-cli web-build web-embed dev clean tidy all api-test api-test-auth api-test-req api-test-reset
+REGISTRY    ?= registry.alexi.ch
+IMAGE_NAME  ?= linkomat
+IMAGE_TAG   ?= latest
+PLATFORMS   ?= linux/amd64,linux/arm64
+GIT_SHA     := $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo none)
+
+IMAGE       := $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)
+IMAGE_SHA   := $(REGISTRY)/$(IMAGE_NAME):$(GIT_SHA)
+
+BUILDX_BASE := --platform $(PLATFORMS) --tag $(IMAGE) --tag $(IMAGE_SHA) --progress plain
+
+.PHONY: help build-server build-server-expose-dev build-cli web-build web-embed image-build image-push dev clean tidy all api-test api-test-auth api-test-req api-test-reset
 
 help:
 	@echo "Targets:"
@@ -32,6 +43,15 @@ help:
 	@echo "  web-build        Install deps and build the web PWA to web/dist"
 	@echo "  web-embed        Copy web/dist into api/web_dist/ for the embedded"
 	@echo "                     server binary (runs web-build first)"
+	@echo "  image-build      Multi-platform ($(PLATFORMS)) build of $(IMAGE)."
+	@echo "                     Verifies the Dockerfile for every target platform;"
+	@echo "                     loads nothing into the local daemon and pushes"
+	@echo "                     nothing. Use image-push for the deploy step."
+	@echo "  image-push       Multi-platform build + push to $(REGISTRY)."
+	@echo "                     Tags both :$(IMAGE_TAG) and :<git-sha>."
+	@echo "                     Requires 'docker login $(REGISTRY)' beforehand."
+	@echo "                     Overrides: REGISTRY=, IMAGE_NAME=, IMAGE_TAG=,"
+	@echo "                     PLATFORMS="
 	@echo "  dev              Run the web dev server and the Go server concurrently"
 	@echo "  tidy             Run go mod tidy across all modules"
 	@echo "  api-test         Run auth + entries + meta Bruno collections against $(BRUNO_BASEURL)"
@@ -76,6 +96,12 @@ web-embed: web-build
 	@mkdir -p $(API_DIR)/web_dist
 	@cp -R $(WEB_DIR)/dist/. $(API_DIR)/web_dist/
 	@echo "Embedded $$(ls $(API_DIR)/web_dist | wc -l | tr -d ' ') top-level files into api/web_dist/"
+
+image-build:
+	docker buildx build $(BUILDX_BASE) .
+
+image-push:
+	docker buildx build $(BUILDX_BASE) --push .
 
 dev:
 	@echo "Starting web dev server on http://localhost:5173"
