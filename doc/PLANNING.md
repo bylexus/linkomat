@@ -156,7 +156,7 @@ keeps the items the next session needs cold.
 | 15 | (docs)        | `56c6f84`                               | split docs: `doc/architecture/` for system, `PLANNING.md` kept for handoff |
 | 16 | (ops)         | `040f86e`                               | docker-compose env for SSL termination (self-signed, local dev)    |
 | 17 | §10 step 10   | `bb2ed8b`                               | mobile PWA install on iOS Safari + Android Chrome (kube002 deploy) |
-| 18 | (small change)| `pending`                               | web home: auto-focus search input + preserve query on back-nav + `make dev-server` target |
+| 18 | (small change)| `6d441e5`                               | web home: auto-focus search input + preserve query on back-nav + `make dev-server` target |
 
 Key landed files by step (also reachable from `git show <commit>`):
 
