@@ -19,9 +19,7 @@ const syncState = useSyncState();
 
 const {
   query: search,
-  entries,
-  cursor,
-  hasMore,
+  numPages: preservedNumPages,
   scrollY: preservedScrollY,
   isPreserved,
 } = usePreservedHomeState();
@@ -29,6 +27,9 @@ const {
 const debouncedSearch = ref('');
 const searchInput = ref<HTMLInputElement | null>(null);
 const isLoadingMore = ref(false);
+const entries = ref<Entry[]>([]);
+const cursor = ref<{ updated_at: string; id: string } | null>(null);
+const hasMore = ref(false);
 
 let debounceTimer: number | null = null;
 watch(search, (q) => {
@@ -91,7 +92,13 @@ watch([debouncedSearch, state, username], () => {
 });
 
 function onChange(): void {
-  reload();
+  if (!db || state.value.kind !== 'ready') return;
+  for (let i = 0; i < entries.value.length; i++) {
+    const fresh = db.getEntry(entries.value[i].id);
+    if (fresh) {
+      entries.value[i] = fresh;
+    }
+  }
 }
 
 onBeforeRouteLeave(async (to) => {
@@ -102,15 +109,32 @@ onBeforeRouteLeave(async (to) => {
     debouncedSearch.value = search.value;
     await nextTick();
   }
+  preservedNumPages.value = Math.max(1, Math.ceil(entries.value.length / 50));
   preservedScrollY.value = window.scrollY;
   isPreserved.value = true;
 });
 
 onMounted(async () => {
   if (isPreserved.value) {
-    debouncedSearch.value = search.value;
     isPreserved.value = false;
+    debouncedSearch.value = search.value;
     skipNextReload = state.value.kind === 'ready' ? 1 : 2;
+    if (state.value.kind !== 'ready') {
+      await new Promise<void>((resolve) => {
+        const stop = watch(state, (s) => {
+          if (s.kind === 'ready') {
+            stop();
+            resolve();
+          }
+        }, { immediate: true });
+      });
+    }
+    await nextTick();
+    reload();
+    for (let i = 1; i < preservedNumPages.value; i++) {
+      if (!hasMore.value) break;
+      await loadMore();
+    }
     await nextTick();
     setTimeout(() => {
       window.scrollTo(0, preservedScrollY.value);

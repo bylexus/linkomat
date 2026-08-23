@@ -1,7 +1,8 @@
 # Home view: paginate result list (load more)
 
+**Ticket/Source:** none
 **Branch:** none (stay on `main`)
-**Status:** planning
+**Status:** done
 
 ## Goal
 
@@ -278,7 +279,7 @@ Step 3's acceptance criteria.
       new query but stale entries.
 
 ### Step 3 — DB change handler: refresh-by-id + docs
-- **Status:** open
+- **Status:** done (reviewed 2026-08-23)
 - **What:**
   - In `web/src/views/HomeView.vue`, replace
     `function onChange(): void { reload(); }` with a per-row refresh:
@@ -309,11 +310,38 @@ Step 3's acceptance criteria.
   - `doc/architecture/web.md` mentions the new method shape and the
     new composable.
   - `doc/PLANNING.md` §12 has a new entry for this work.
-- **Notes:** _filled in after the step is reviewed._
+- **Notes:**
+  - `onChange` implemented as planned (per-row refresh, no add/remove).
+  - `doc/architecture/web.md` updated (listEntries / searchEntries
+    bullet + new "Home state" bullet).
+  - **Follow-up deviation raised during review (stale-data fix):**
+    - The original "do nothing on DB change, next load shows new
+      entries" path left a real bug: while HomeView is unmounted
+      (user on EditView), LOCAL writes (add / edit / delete) are
+      invisible to the snapshot-restore path. Restoring the
+      snapshot verbatim re-showed pre-edit entries and missed
+      locally-added entries.
+    - Fix applied: drop `entries` / `cursor` / `hasMore` from the
+      composable. Snapshot now carries `query` + `numPages` (≥ 1) +
+      `scrollY` + `isPreserved`. On restore, HomeView re-fetches
+      fresh data: `reload()` for page 1, then a `for` loop calling
+      `loadMore()` `numPages - 1` more times. New entries from
+      LOCAL add land at the top automatically (reload picks them
+      up); LOCAL edits are reflected (each fetch returns current
+      fields); LOCAL deletes vanish (the `deleted_at IS NULL`
+      filter drops them). The loaded-pages count is preserved
+      exactly. The natural sort order means the oldest entries get
+      pushed off the bottom if newer ones arrived — the user can
+      click Load more to see them. `onChange` (refresh-by-id) is
+      kept for the in-session sync-clear case.
 
 ### Step 4 - Check if the architecture doc needs updated
 
+- **Status:** done (reviewed 2026-08-23)
 - Update the doc/architecture documentation where needed. Do not introduce new documentation chapters. the architecture doc should stay a high-level document, not document every small implementation detail.
+- **Notes:** Done as part of Step 3 — `listEntries` / `searchEntries` bullet
+  + new "Home state" bullet in `doc/architecture/web.md`. No new
+  sections introduced.
 
 ## Open questions
 

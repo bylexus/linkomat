@@ -68,6 +68,16 @@ web/src/
   `syncing`, `pendingCount`, `lastError`, `lastSkipReason`,
   `lastSyncAt`, `persistentFailure`. Driven by the sync engine; the
   HomeView and EditView read it for the status chip + dots.
+- **Home state** (`state/homeState.ts`) — module-level reactive refs
+  (`query`, `numPages`, `scrollY`, `isPreserved`) shared across mounts
+  of HomeView. Carries the cross-navigation state: search query, how
+  many pages were loaded, scroll position, and the `isPreserved`
+  flag set on leave / consumed on mount. HomeView reads them as
+  `search` / `preservedNumPages` / `preservedScrollY` / `isPreserved`;
+  the loaded list itself is rebuilt on each mount by `reload()` +
+  `loadMore()` loops, so LOCAL add / edit / delete and any sync
+  activity during the away-time are reflected when the user comes
+  back. Cleared on logout via `clearPreservedHomeState()`.
 
 ## Local DB
 
@@ -91,10 +101,15 @@ web/src/
   not touch `local_dirty_at` (server is authoritative for `updated_at`).
 - `clearDirty(id, serverUpdatedAt)` — drop the dirty mark, set
   `base_updated_at` to the server's `updated_at`.
-- `searchEntries(query)` — FTS3 `MATCH`. `toFtsQuery` strips stray
-  `"` and `'`, preserves uppercase FTS3 operators (`AND`/`OR`/`NOT`/
-  `NEAR`), appends `*` to non-operator tokens for prefix matching.
-  Empty query → `listEntries()`.
+- `listEntries(opts?)` / `searchEntries(query, opts?)` — return
+  `{ entries: Entry[], hasMore: boolean }`. `opts.cursor` is the
+  `{ updated_at, id }` of the last row in the previous page; pass
+  `null` / omit it for page 1. SQL `LIMIT 51` (page size 50 + 1);
+  the extra row is dropped and `hasMore` reflects whether it
+  existed. Sort: `updated_at DESC, id ASC`. `searchEntries` uses
+  FTS3 `MATCH` (`toFtsQuery` strips stray `"` and `'`, preserves
+  uppercase operators `AND`/`OR`/`NOT`/`NEAR`, appends `*` to
+  non-operator tokens). Empty query → `listEntries()`.
 
 ## Sync engine
 
