@@ -2,6 +2,7 @@
 import { computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuth } from './state/auth';
+import AppFooter from './components/AppFooter.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -12,7 +13,7 @@ const showLoading = computed(() => state.value === 'unknown');
 watch(
   [state, () => route.path],
   ([s, p]) => {
-    if (s === 'logged-out' && p !== '/login') {
+    if (s === 'logged-out' && p !== '/login' && p !== '/about') {
       void router.push('/login');
     } else if (s === 'logged-in' && p === '/login') {
       void router.push('/');
@@ -34,7 +35,10 @@ void username;
   <div v-if="showLoading" class="loading" data-test="app-loading">
     Loading…
   </div>
-  <RouterView v-else />
+  <template v-else>
+    <RouterView />
+    <AppFooter />
+  </template>
 </template>
 
 <style>

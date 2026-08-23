@@ -101,5 +101,5 @@ The project should use the following file structure:
 - ~~bug: back-arrow: clears search~~ done (session 18)
 - tag-list / selection (search) in search view
 - ~~focus on search field when home panel~~ done (session 18)
-- paging / limiting search list - e.g. first 100? then "load more", or just search
 - app icon on home screen - also for browsers like duckduck go on android
+- CLI client (design in doc/architecture/cli.md)

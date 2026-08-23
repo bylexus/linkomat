@@ -22,13 +22,15 @@ source of truth for reads.
 ```
 web/src/
 ├── main.ts                # boot: load auth state, initSync(), create app, mount
-├── App.vue                # auth-guard shell + RouterView + status panel
-├── router.ts              # 3 routes: /login, /, /entries/:id
+├── App.vue                # auth-guard shell + RouterView + AppFooter
+├── router.ts              # 4 routes: /login, /about, /, /entries/:id
 ├── env.d.ts, sql.js.d.ts  # local type shims
 ├── api/
 │   ├── client.ts          # fetch wrapper + single in-flight 401→refresh
 │   ├── auth.ts            # login / logout / probe
 │   └── entries.ts         # listEntries / getEntry / putEntry / deleteEntry + DTOs
+├── components/
+│   └── AppFooter.vue      # copyright + alexi.ch link + /about link; rendered below RouterView on every route
 ├── db/
 │   ├── index.ts           # useDb(username) singleton; closeDb(); dev global
 │   ├── schema.ts          # CURRENT_SCHEMA_VERSION, DDL, OPFS filename helpers
@@ -46,7 +48,8 @@ web/src/
 └── views/
     ├── LoginView.vue      # username + password form
     ├── HomeView.vue       # search bar, virtualized list, FAB, sync chip row
-    └── EditView.vue       # title / url / tags / note, save-on-blur, delete
+    ├── EditView.vue       # title / url / tags / note, save-on-blur, delete
+    └── AboutView.vue      # static app description; reachable while logged out
 ```
 
 ## State model

@@ -327,6 +327,10 @@ function rowDotClass(entry: Entry): string {
   flex-direction: column;
   gap: 0.75rem;
   margin-bottom: 1rem;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background-color: #ffffff;
 }
 
 .home-title {
