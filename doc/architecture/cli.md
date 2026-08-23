@@ -1,12 +1,8 @@
 # CLI (`cli/`)
 
-**Status: placeholder.** The CLI is the last item in
-`PLANNING.md` §10 (step 11). It currently builds a no-op `main` that
+**Status: placeholder.** It currently builds a no-op `main` that
 prints `shared.Version`; the real subcommands (`login`, `logout`,
 `add`, `ls`, `search`, `get`, `rm`, `edit`) are not implemented yet.
-
-The design intent — copied here so the implementing session can pick
-up from one place — is in `PLANNING.md` §8.
 
 ## What is decided
 

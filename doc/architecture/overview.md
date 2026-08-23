@@ -19,7 +19,7 @@ user-scoped from day one.
 | Web     | `web/`      | Vue 3 + TS PWA. Local-first, offline-capable, syncs with the server.   | [web.md](web.md)                  |
 | CLI     | `cli/`      | Go CLI. Online-only client over the same API.                          | [cli.md](cli.md)                  |
 | Shared  | `shared/`   | Go DTOs and constants shared between server and CLI.                   | (see `shared/*.go`)               |
-| Docs    | `doc/`      | `PLANNING.md` (design source of truth), `architecture/` (this tree), `bruno-api-tests/` (manual API test collection). | — |
+| Docs    | `doc/`      | `architecture/` (this tree), `agent-plans/` (in-flight feature plans), `bruno-api-tests/` (manual API test collection). | — |
 
 A root `go.work` wires `api`, `cli`, and `shared`. A `Makefile` at the
 repo root drives builds. Details in [build.md](build.md).
@@ -66,8 +66,8 @@ Two HTTP clients, one API:
 The server is the **only** component that touches the database. It
 runs plain HTTP and is expected to live behind a TLS-terminating
 reverse proxy (Caddy, nginx, Traefik, …). See
-`PLANNING.md` §5.2 for `LINKOMAT_BEHIND_PROXY` and the cookie `Secure`
-flag.
+[build.md](build.md) for the `LINKOMAT_BEHIND_PROXY` and cookie
+`Secure` flag notes.
 
 ## Data flow at a glance
 
@@ -85,7 +85,5 @@ flag.
 
 - Editing server code? Read [api.md](api.md).
 - Editing the web app? Read [web.md](web.md).
-- Editing the CLI? Read [cli.md](cli.md) — placeholder for now, CLI
-  is the last item in `PLANNING.md` §10.
+- Editing the CLI? Read [cli.md](cli.md) — placeholder.
 - Need build / test commands? Read [build.md](build.md).
-- Need design decisions? Read `../PLANNING.md`.

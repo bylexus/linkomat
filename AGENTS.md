@@ -5,30 +5,30 @@ Quick map for a fresh reading LLM agent. **Read this file first.**
 ## Read first
 
 1. `README.md` — what Linkomat is, in a paragraph.
-2. `doc/PLANNING.md` — the **single source of truth** for design
-   decisions, scope, and progress. Section 0 is the resume protocol
-   (read it before touching anything); §10 is the build order; §12
-   is the session-by-session progress log. PLANNING.md overrides the
-   README on conflict.
-3. `doc/architecture/overview.md` — the system map; everything below
+2. `doc/architecture/overview.md` — the system map; everything below
    hangs off it. Pick the per-component doc for the part you're
    about to touch:
    - `doc/architecture/api.md` — Go server
    - `doc/architecture/web.md` — Vue 3 PWA
    - `doc/architecture/cli.md` — Go CLI (placeholder)
    - `doc/architecture/build.md` — build, run, test
+3. If an in-flight feature is being worked on, its plan lives at
+   `docs/agent-plans/<feature>.md`. Architecture is the source of
+   truth for the system; the plan file is the source of truth for
+   the current work.
 
 ## Conventions for reading the code
 
-- **Source of truth on conflict**: this file + `doc/PLANNING.md` +
-  `doc/architecture/*.md` outrank the README. If the code disagrees
-  with the docs, the docs were last updated by the most recent
-  session — read `doc/PLANNING.md` §12 (Progress log) to see whether
-  the deviation is recorded as a discrepancy.
+- **Source of truth on conflict**: this file + `doc/architecture/*.md`
+  outrank the README. If the code disagrees with the docs, the docs
+  were last updated by the most recent session — check `git log` and
+  the in-flight `docs/agent-plans/<feature>.md` to see whether the
+  deviation is recorded.
 - **No code comments unless asked.** Don't add them when editing.
 - **No automated tests / CI in v1.** Smoke checks are manual; see
-  the "Smoke checks performed" line at the bottom of each session
-  in `doc/PLANNING.md` §12 for what to re-run.
+  the "Acceptance criteria" / "Manual test instructions" sections
+  of the relevant feature plan under `docs/agent-plans/` for what
+  to re-run.
 - **No summary at the end of a task.** Stop when the task is done.
 - **Web PWA specific**:
   - `CURRENT_SCHEMA_VERSION` is the migration boundary — bump it
@@ -63,5 +63,5 @@ Quick map for a fresh reading LLM agent. **Read this file first.**
 | PWA / service worker config | `web/vite.config.ts`                                                          |
 | Cookie / DTO constant       | `shared/cookies.go`, `shared/auth.go`, `shared/entry.go`, `shared/entries.go` |
 | Build targets               | `Makefile`                                                                    |
-| Plan / design               | `doc/PLANNING.md` — also update §12 Progress log when committing               |
+| Plan / design               | `docs/agent-plans/<feature>.md` for the in-flight feature                    |
 | Architecture docs           | `doc/architecture/*.md`                                                       |

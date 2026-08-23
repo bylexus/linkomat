@@ -15,8 +15,7 @@ source of truth for reads.
 - OPFS (Origin Private File System) for persistence. No IndexedDB
   fallback in v1.
 - FTS3 (built into `sql.js@1.14.2`'s WASM) for search. FTS5 is not
-  available without an EMSDK fork build — see
-  `PLANNING.md` §7.7.
+  available without an EMSDK fork build.
 
 ## Top-level layout
 
@@ -114,8 +113,7 @@ web/src/
 ## Sync engine
 
 `sync/engine.ts` is a module-level singleton. **It runs on the main
-thread**, not a `Worker` (despite the historical name). See
-`PLANNING.md` §7.6.
+thread**, not a `Worker` (despite the historical name).
 
 - `initSync()` is called from `main.ts` once. It starts
   `reachability`, watches `useAuth()`. On `logged-in`: attaches

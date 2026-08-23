@@ -19,7 +19,7 @@ navigation away and back to the home view.
 **In scope:**
 - Web PWA only. `web/src/db/sqlite.ts`, `web/src/views/HomeView.vue`,
   `web/src/state/homeSearch.ts` (renamed), `web/src/state/auth.ts`,
-  `doc/architecture/web.md`, `doc/PLANNING.md`.
+  `doc/architecture/web.md`.
 - DB layer: cursor-based pagination of `listEntries` and `searchEntries`.
 - HomeView UI: Load more button, cursor state, navigation-round-trip state
   preservation, DB-change refresh-by-id.
@@ -31,8 +31,7 @@ navigation away and back to the home view.
 - Server / API changes. The server endpoints stay as they are.
 - CLI changes.
 - Local DB schema changes. No new tables, no `CURRENT_SCHEMA_VERSION` bump.
-- Automated tests / CI. Manual smoke checks only (per `AGENTS.md` and
-  `doc/PLANNING.md` §1).
+- Automated tests / CI. Manual smoke checks only (per `AGENTS.md`).
 - Total-count display ("X of Y"). Not requested.
 - Auto-load on scroll. Button only.
 - Sticky / floating Load more button. Plain button below the scroller.
@@ -108,8 +107,8 @@ fresh list only on next navigation mount or next search.
 
 ## Testing strategy
 
-No automated tests. Manual smoke checks only (per `AGENTS.md` and
-`doc/PLANNING.md` §1). The dev runs `make dev` (or `make dev-server`),
+No automated tests. Manual smoke checks only (per `AGENTS.md`).
+The dev runs `make dev` (or `make dev-server`),
 seeds the local DB via the dev global, and walks the scenarios listed in
 Step 3's acceptance criteria.
 
@@ -293,9 +292,6 @@ Step 3's acceptance criteria.
   - In `doc/architecture/web.md`, update the `LocalDb.searchEntries` /
     `listEntries` description to mention the cursor + `hasMore` shape
     and the new `state/homeState.ts` composable.
-  - In `doc/PLANNING.md` §12, add a new session entry describing the
-    landed work (only if the developer commits — the agent does not
-    commit on its own).
 - **Acceptance criteria:**
   - Edit an entry in EditView (creates a local dirty mark). Return to
     HomeView. The row's dot turns orange. Wait for sync to push
@@ -309,7 +305,6 @@ Step 3's acceptance criteria.
     back → the new entry is at the top of the list (first 50).
   - `doc/architecture/web.md` mentions the new method shape and the
     new composable.
-  - `doc/PLANNING.md` §12 has a new entry for this work.
 - **Notes:**
   - `onChange` implemented as planned (per-row refresh, no add/remove).
   - `doc/architecture/web.md` updated (listEntries / searchEntries

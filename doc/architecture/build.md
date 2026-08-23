@@ -41,7 +41,7 @@ All via env vars, loaded by `api/config.go`:
 | `LINKOMAT_REFRESH_TTL_SECONDS`   | `2592000` (30 d)                           | Refresh token lifetime.                            |
 
 The server is plain HTTP. Put it behind a TLS-terminating reverse
-proxy. See `PLANNING.md` §5.2.
+proxy.
 
 ## Server user management
 

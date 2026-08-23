@@ -39,9 +39,9 @@ so one binary serves both the API and the static SPA.
 1. `Server.middleware` (the only middleware wrapping the mux) runs
    for every request:
    - Mints a request ID, stores it in `ctx`.
-   - Sets `X-Content-Type-Options`, `Referrer-Policy`,
-     `X-Request-Id`, `Strict-Transport-Security`, the
-     `Content-Security-Policy` from `PLANNING.md` §5.4.
+    - Sets `X-Content-Type-Options`, `Referrer-Policy`,
+      `X-Request-Id`, `Strict-Transport-Security`, and the
+      `Content-Security-Policy`.
    - Calls `authenticate(rw, r)`. If the path matches `/entries*`
      (`needsAuth`) the middleware looks up the access token from the
      `linkomat_auth` cookie or `Authorization: Bearer …` header and

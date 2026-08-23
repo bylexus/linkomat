@@ -144,7 +144,7 @@ curl -fsS -i -c /tmp/cookies.txt \
 - **Single replica + `Recreate`.** The PV is RWO and the SQLite file
   cannot tolerate concurrent writers across pods. Do not bump
   `replicas` until the schema moves off per-user SQLite files
-  (deferred, see `doc/PLANNING.md` §11).
+  (deferred).
 
 - **`imagePullPolicy: Always` + `:latest` tag.** Matches listomat. A
   bad push goes live on the next pod restart. For a pinned release, set
