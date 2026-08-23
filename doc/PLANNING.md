@@ -158,6 +158,7 @@ keeps the items the next session needs cold.
 | 17 | §10 step 10   | `bb2ed8b`                               | mobile PWA install on iOS Safari + Android Chrome (kube002 deploy) |
 | 18 | (small change)| `6d441e5`                               | web home: auto-focus search input + preserve query on back-nav + `make dev-server` target |
 | 19 | §11 step ?    | `363cde9`                               | web home: paginate result list (50/page + Load more); preserve state across nav; `make dev-server` exposes `__linkomatDb` |
+| 20 | follow-up     | `e63e561`                               | web home load-more: reload on return preserves loaded pages, fixes LOCAL-write staleness |
 
 Key landed files by step (also reachable from `git show <commit>`):
 
