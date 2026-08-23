@@ -28,7 +28,7 @@ IMAGE_SHA   := $(REGISTRY)/$(IMAGE_NAME):$(GIT_SHA)
 
 BUILDX_BASE := --platform $(PLATFORMS) --tag $(IMAGE) --tag $(IMAGE_SHA) --progress plain
 
-.PHONY: help build-server build-server-expose-dev build-cli web-build web-embed image-build image-push dev clean tidy all api-test api-test-auth api-test-req api-test-reset
+.PHONY: help build-server build-server-expose-dev build-cli web-build web-embed image-build image-push dev dev-server clean tidy all api-test api-test-auth api-test-req api-test-reset
 
 help:
 	@echo "Targets:"
@@ -53,6 +53,12 @@ help:
 	@echo "                     Overrides: REGISTRY=, IMAGE_NAME=, IMAGE_TAG=,"
 	@echo "                     PLATFORMS="
 	@echo "  dev              Run the web dev server and the Go server concurrently"
+	@echo "                     (login is broken here — Vite dev server has no proxy;"
+	@echo "                     use 'make dev-server' for a working end-to-end loop)"
+	@echo "  dev-server       Build the web SPA, embed it into the API binary, and run"
+	@echo "                     'go run ./api' on :8080. No Vite HMR, but the login"
+	@echo "                     flow + cookies + sync actually work because everything"
+	@echo "                     is served from the same origin."
 	@echo "  tidy             Run go mod tidy across all modules"
 	@echo "  api-test         Run auth + entries + meta Bruno collections against $(BRUNO_BASEURL)"
 	@echo "                     (server must already be running; override with"
@@ -110,6 +116,10 @@ dev:
 	bash -lc 'cd $(WEB_DIR) && $(NVM_LOAD) && $(NPM) run dev' & \
 	$(GO) run ./$(API_DIR) & \
 	wait
+
+dev-server: web-embed
+	@echo "Starting Go server on http://localhost:8080 (embedded SPA, no Vite HMR)"
+	$(GO) run ./$(API_DIR) serve
 
 tidy:
 	cd $(API_DIR) && $(GO) mod tidy

@@ -97,5 +97,7 @@ The project should use the following file structure:
 
 - Markdown in Notes field with html / edit view
 - WebSocket connection to clients of the same user, to push a sync instead of polling
-- on-/offline indicator
 - manual sync-now button
+- ~~bug: back-arrow: clears search~~ done (session 18)
+- tag-list / selection (search) in search view
+- ~~focus on search field when home panel~~ done (session 18)

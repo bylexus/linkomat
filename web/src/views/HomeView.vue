@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { onBeforeRouteLeave, useRouter } from 'vue-router';
 import { RecycleScroller } from 'vue-virtual-scroller';
 import 'vue-virtual-scroller/dist/vue-virtual-scroller.css';
 import { useDb } from '../db';
@@ -9,6 +9,7 @@ import { uuidv7 } from '../utils/uuid';
 import { normalizeUrl } from '../utils/url';
 import { useAuth } from '../state/auth';
 import { useSyncState } from '../state/sync';
+import { usePreservedHomeSearch } from '../state/homeSearch';
 import { syncNow } from '../sync/engine';
 import type { Entry } from '../db/sqlite';
 
@@ -20,7 +21,10 @@ const syncState = useSyncState();
 
 const search = ref('');
 const debouncedSearch = ref('');
+const searchInput = ref<HTMLInputElement | null>(null);
 const entries = ref<Entry[]>([]);
+
+const preservedHomeSearch = usePreservedHomeSearch();
 
 let debounceTimer: number | null = null;
 watch(search, (q) => {
@@ -47,9 +51,20 @@ function onChange(): void {
   reload();
 }
 
+onBeforeRouteLeave((to) => {
+  if (to.path.startsWith('/entries/')) {
+    preservedHomeSearch.value = search.value;
+  }
+});
+
 onMounted(() => {
+  if (preservedHomeSearch.value) {
+    search.value = preservedHomeSearch.value;
+    preservedHomeSearch.value = '';
+  }
   reload();
   window.addEventListener(DB_CHANGE_EVENT, onChange);
+  searchInput.value?.focus();
 });
 
 onBeforeUnmount(() => {
@@ -99,6 +114,7 @@ function rowDotClass(entry: Entry): string {
     <header class="home-header">
       <h1 class="home-title">Linkomat</h1>
       <input
+        ref="searchInput"
         v-model="search"
         type="search"
         placeholder="Search title, url, note, tags…"
