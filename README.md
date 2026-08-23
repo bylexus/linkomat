@@ -96,10 +96,11 @@ The project should use the following file structure:
 ## Whishlist
 
 - Markdown in Notes field with html / edit view
-- WebSocket connection to clients of the same user, to push a sync instead of polling
 - manual sync-now button
-- ~~bug: back-arrow: clears search~~ done (session 18)
 - tag-list / selection (search) in search view
-- ~~focus on search field when home panel~~ done (session 18)
 - app icon on home screen - also for browsers like duckduck go on android
+- sortable home list: by last modified or by AZ, asc/desc
+- link checker: go through all links and check which ones still return 200
+
 - CLI client (design in doc/architecture/cli.md)
+- WebSocket connection to clients of the same user, to push a sync instead of polling

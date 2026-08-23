@@ -56,9 +56,9 @@ function reload(): void {
   cursor.value =
     page.hasMore && page.entries.length > 0
       ? {
-          updated_at: page.entries[page.entries.length - 1].updated_at,
-          id: page.entries[page.entries.length - 1].id,
-        }
+        updated_at: page.entries[page.entries.length - 1].updated_at,
+        id: page.entries[page.entries.length - 1].id,
+      }
       : null;
 }
 
@@ -76,9 +76,9 @@ async function loadMore(): Promise<void> {
     cursor.value =
       page.hasMore && page.entries.length > 0
         ? {
-            updated_at: page.entries[page.entries.length - 1].updated_at,
-            id: page.entries[page.entries.length - 1].id,
-          }
+          updated_at: page.entries[page.entries.length - 1].updated_at,
+          id: page.entries[page.entries.length - 1].id,
+        }
         : null;
   } finally {
     isLoadingMore.value = false;
@@ -197,55 +197,28 @@ function rowDotClass(entry: Entry): string {
       <div class="home-title-row">
         <h1 class="home-title">Linkomat</h1>
         <div class="home-status-group" data-test="home-status-chip">
-          <span
-            v-if="syncState.pendingCount > 0"
-            class="sync-status-pending"
-            data-test="home-status-pending"
-          >
+          <span v-if="syncState.pendingCount > 0" class="sync-status-pending" data-test="home-status-pending">
             pending: {{ syncState.pendingCount }}
           </span>
-          <span
-            class="sync-status-state"
-            :class="stateLabelClass"
-            data-test="home-status-state"
-            :aria-label="stateLabel"
-          >
+          <span class="sync-status-state" :class="stateLabelClass" data-test="home-status-state"
+            :aria-label="stateLabel" :title="stateLabel">
             <OnlineIcon v-if="syncState.online && !syncState.syncing && !syncState.lastError" />
             <OfflineIcon v-else-if="!syncState.online && !syncState.syncing && !syncState.lastError" />
             <template v-else>{{ stateLabel }}</template>
           </span>
-          <button
-            v-if="syncState.persistentFailure"
-            type="button"
-            class="sync-status-retry"
-            data-test="home-status-retry"
-            @click="onRetry"
-          >
+          <button v-if="syncState.persistentFailure" type="button" class="sync-status-retry"
+            data-test="home-status-retry" @click="onRetry">
             Retry now
           </button>
         </div>
       </div>
-      <input
-        ref="searchInput"
-        v-model="search"
-        type="search"
-        placeholder="Search title, url, note, tags…"
-        class="search"
-        autocomplete="off"
-        spellcheck="false"
-        data-test="home-search"
-      />
+      <input ref="searchInput" v-model="search" type="search" placeholder="Search title, url, note, tags…"
+        class="search" autocomplete="off" spellcheck="false" data-test="home-search" />
       <div class="home-meta">
         <span class="home-username" data-test="home-username">{{ username }}</span>
-        <button
-          type="button"
-          class="logout-btn"
-          aria-label="Logout"
-          title="Logout"
-          data-test="home-logout"
-          @click="onLogout"
-        >
-          <LogoutIcon />
+        <button type="button" class="logout-btn" aria-label="Logout" title="Logout" data-test="home-logout"
+          @click="onLogout">
+          <LogoutIcon width="1rem" height="1rem" />
         </button>
       </div>
     </header>
@@ -254,19 +227,11 @@ function rowDotClass(entry: Entry): string {
       Loading local database…
     </section>
 
-    <section
-      v-else-if="state.kind === 'opfs-unavailable'"
-      class="banner banner-error"
-      data-test="home-status"
-    >
+    <section v-else-if="state.kind === 'opfs-unavailable'" class="banner banner-error" data-test="home-status">
       Local storage unavailable. This browser does not expose OPFS.
     </section>
 
-    <section
-      v-else-if="state.kind === 'error'"
-      class="banner banner-error"
-      data-test="home-status"
-    >
+    <section v-else-if="state.kind === 'error'" class="banner banner-error" data-test="home-status">
       {{ state.message }}
     </section>
 
@@ -276,51 +241,26 @@ function rowDotClass(entry: Entry): string {
       </p>
       <template v-else>
         <div class="list" data-test="home-list">
-          <div
-            v-for="item in entries"
-            :key="item.id"
-            class="row"
-            data-test="home-row"
-            :data-test-id="item.id"
-            @click="onRowClick(item.id)"
-          >
+          <div v-for="item in entries" :key="item.id" class="row" data-test="home-row" :data-test-id="item.id"
+            @click="onRowClick(item.id)">
             <span class="row-status" :class="rowDotClass(item)" data-test="home-row-status" aria-hidden="true" />
             <div class="row-title">{{ item.title || item.url || '(untitled)' }}</div>
-            <a
-              v-if="item.url"
-              class="row-url"
-              :href="normalizeUrl(item.url)"
-              target="_blank"
-              rel="noopener noreferrer"
-              data-test="home-row-url"
-              @click.stop
-            >{{ item.url }}</a>
+            <a v-if="item.url" class="row-url" :href="normalizeUrl(item.url)" target="_blank" rel="noopener noreferrer"
+              data-test="home-row-url" @click.stop>{{ item.url }}</a>
             <span v-else class="row-url" />
             <div v-if="item.tags.length" class="row-tags">
               <span v-for="tag in item.tags" :key="tag" class="tag-chip">{{ tag }}</span>
             </div>
           </div>
         </div>
-        <button
-          v-if="hasMore"
-          type="button"
-          class="load-more"
-          :disabled="isLoadingMore"
-          data-test="home-load-more"
-          @click="loadMore"
-        >
+        <button v-if="hasMore" type="button" class="load-more" :disabled="isLoadingMore" data-test="home-load-more"
+          @click="loadMore">
           {{ isLoadingMore ? 'Loading…' : 'Load more' }}
         </button>
       </template>
     </section>
 
-    <button
-      type="button"
-      class="fab"
-      aria-label="Add entry"
-      data-test="home-fab"
-      @click="onFab"
-    >
+    <button type="button" class="fab" aria-label="Add entry" data-test="home-fab" @click="onFab">
       +
     </button>
   </main>
