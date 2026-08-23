@@ -155,7 +155,7 @@ keeps the items the next session needs cold.
 | 14 | §10 step 9.3  | `29a032c`                               | sync status UI + backoff + retry button                            |
 | 15 | (docs)        | `56c6f84`                               | split docs: `doc/architecture/` for system, `PLANNING.md` kept for handoff |
 | 16 | (ops)         | `040f86e`                               | docker-compose env for SSL termination (self-signed, local dev)    |
-| 17 | §10 step 10   | `pending`                               | mobile PWA install on iOS Safari + Android Chrome (kube002 deploy) |
+| 17 | §10 step 10   | `bb2ed8b`                               | mobile PWA install on iOS Safari + Android Chrome (kube002 deploy) |
 
 Key landed files by step (also reachable from `git show <commit>`):
 
