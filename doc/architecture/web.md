@@ -84,6 +84,12 @@ web/src/
   `loadMore()` loops, so LOCAL add / edit / delete and any sync
   activity during the away-time are reflected when the user comes
   back. Cleared on logout via `clearPreservedHomeState()`.
+- **HomeView DB-change handling** — `linkomat-db-change` only
+  refreshes the already-loaded rows by id (no add / remove / re-sort).
+  Exception: the first successful sync after app open or login
+  (`SyncState.lastSyncAt` goes from `null` to a value) triggers a
+  full reload that keeps the loaded page count, so remote changes
+  pulled at startup become visible.
 
 ## Local DB
 

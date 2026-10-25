@@ -94,6 +94,24 @@ watch([debouncedSearch, state, username], () => {
   reload();
 });
 
+async function reloadKeepingPages(): Promise<void> {
+  const numPages = Math.max(1, Math.ceil(entries.value.length / 50));
+  reload();
+  for (let i = 1; i < numPages; i++) {
+    if (!hasMore.value) break;
+    await loadMore();
+  }
+}
+
+watch(
+  () => syncState.value.lastSyncAt,
+  (now, prev) => {
+    if (prev === null && now !== null) {
+      void reloadKeepingPages();
+    }
+  }
+);
+
 function onChange(): void {
   if (!db || state.value.kind !== 'ready') return;
   for (let i = 0; i < entries.value.length; i++) {
