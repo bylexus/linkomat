@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 4;
 
 export const CREATE_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS schema_version (
@@ -10,6 +10,7 @@ export const CREATE_SCHEMA_SQL = `
     url TEXT NOT NULL DEFAULT '',
     note TEXT NOT NULL DEFAULT '',
     tags TEXT NOT NULL DEFAULT '[]',
+    meta TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     deleted_at TEXT NULL,

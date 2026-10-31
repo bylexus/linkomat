@@ -43,7 +43,7 @@ func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) *http.Requ
 }
 
 func needsAuth(path string) bool {
-	return strings.HasPrefix(path, "/entries") || strings.HasPrefix(path, "/friendships")
+	return strings.HasPrefix(path, "/entries") || strings.HasPrefix(path, "/friendships") || strings.HasPrefix(path, "/pending-entries")
 }
 
 func extractAccessToken(r *http.Request) string {

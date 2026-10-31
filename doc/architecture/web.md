@@ -28,15 +28,18 @@ web/src/
 ├── api/
 │   ├── client.ts          # fetch wrapper + single in-flight 401→refresh
 │   ├── auth.ts            # login / logout / probe
-│   ├── entries.ts         # listEntries / getEntry / putEntry / deleteEntry + DTOs
-│   └── friendships.ts     # list / create / accept / decline / delete friendship + DTOs (online-only)
+│   ├── entries.ts         # listEntries / getEntry / putEntry / deleteEntry / shareEntry + DTOs
+│   ├── friendships.ts     # list / create / accept / decline / delete friendship + DTOs (online-only)
+│   └── pendingEntries.ts  # list / accept / decline received (pending) entries + DTOs (online-only)
 ├── components/
 │   ├── AppFooter.vue      # copyright + alexi.ch link + /about link; rendered below RouterView on every route
+│   ├── ShareDialog.vue    # native <dialog>: pick one accepted friend, send the entry; exposes open(entry)
 │   └── icons/
 │       ├── LogoutIcon.vue   # inline-SVG logout glyph used by the icon-only logout button on HomeView
 │       ├── FriendsIcon.vue  # inline-SVG people glyph for the friends button on HomeView
 │       ├── OnlineIcon.vue   # inline-SVG wifi glyph for the online sync state
-│       └── OfflineIcon.vue  # inline-SVG wifi-glyph-with-slash for the offline sync state
+│       ├── OfflineIcon.vue  # inline-SVG wifi-glyph-with-slash for the offline sync state
+│       └── ShareIcon.vue    # inline-SVG share glyph for the share buttons on HomeView rows and EditView
 ├── db/
 │   ├── index.ts           # useDb(username) singleton; closeDb(); dev global
 │   ├── schema.ts          # CURRENT_SCHEMA_VERSION, DDL, OPFS filename helpers
@@ -53,8 +56,8 @@ web/src/
 │   └── url.ts             # normalizeUrl on blur + render
 └── views/
     ├── LoginView.vue      # username + password form
-    ├── HomeView.vue       # search bar, virtualized list, FAB, sync chip row, friend request panel
-    ├── EditView.vue       # title / url / tags / note, save-on-blur, delete
+    ├── HomeView.vue       # search bar, virtualized list (share button per row), FAB, sync chip row, friend request panel, Received section
+    ├── EditView.vue       # title / url / tags / note, save-on-blur, share, delete, meta footer
     ├── FriendsView.vue    # friends list, request / accept / decline / remove (online-only)
     └── AboutView.vue      # static app description; reachable while logged out
 ```
@@ -112,8 +115,10 @@ web/src/
 - `listDirtyEntries()` / `countDirtyEntries()` — FIFO over
   `local_dirty_at` for the push queue.
 - `applyServerEntries()` / `applyServerEntry()` — write server rows
-  into the local DB; updates the FTS triggers transparently. Does
-  not touch `local_dirty_at` (server is authoritative for `updated_at`).
+  into the local DB (`writeServerRow`: update by id, else insert;
+  writes `meta` as JSON text; sets `local_dirty_at` and
+  `base_updated_at` to `NULL`), in one transaction; updates the FTS
+  triggers transparently, persists and dispatches `DB_CHANGE_EVENT`.
 - `clearDirty(id, serverUpdatedAt)` — drop the dirty mark, set
   `base_updated_at` to the server's `updated_at`.
 - `listEntries(opts?)` / `searchEntries(query, opts?)` — return
@@ -125,6 +130,16 @@ web/src/
   FTS3 `MATCH` (`toFtsQuery` strips stray `"` and `'`, preserves
   uppercase operators `AND`/`OR`/`NOT`/`NEAR`, appends `*` to
   non-operator tokens). Empty query → `listEntries()`.
+
+- `meta` — `entries.meta TEXT NOT NULL DEFAULT '{}'`, the server-owned
+  JSON log (`shares`, `imported`; see `api.md` → "Share /
+  pending-entries endpoints"). Type `EntryMeta` in `db/sqlite.ts`
+  (`api/entries.ts` imports it). All `SELECT` lists include `meta`;
+  `rowToEntry` parses it and maps invalid JSON / `null` / arrays to
+  `{}`. Only `writeServerRow` writes it; `upsertEntry` /
+  `softDeleteEntry` do not touch it, and the push body
+  (`putEntry`) does not carry it. Adding the column bumped
+  `CURRENT_SCHEMA_VERSION` to 4 (sidecar + recreate + full pull).
 
 ## Sync engine
 
@@ -195,6 +210,51 @@ them. Views call `api/friendships.ts` (through `apiGet` / `apiPost` / `apiDelete
   interval / online / focus triggers). Load errors are silent: the
   panel keeps the last data or shows nothing. Action errors show
   inline under the item.
+
+## Sharing
+
+Pending (received) entries are **online-only**, like friendships:
+they live only in the receiver's server per-user DB
+(`pending_entries`), not in the local sql.js DB, and the sync engine
+does not touch them. `meta` is server-owned; the client only reads it
+from pulled / returned entries.
+
+- **Share gate** — the share button (HomeView row, bottom-right,
+  `@click.stop`; EditView header, left of [Delete], existing entries
+  only) is disabled when `SyncState.online` is false (label
+  "Offline") or the entry has `local_dirty_at` (label "Sync first").
+  Because a synced entry equals the server row, the client sends only
+  the target username.
+- **`ShareDialog`** (`components/ShareDialog.vue`, one instance per
+  view, `open(entry)`) — native `<dialog>`. Title
+  `Share "<title or url or (untitled)>"`. On open it calls
+  `GET /friendships` and lists the accepted friends (the other
+  username of each accepted row, de-duplicated, sorted A–Z) as a radio
+  list; "Loading…" while loading; "No friends yet." + link to
+  `/friends` when empty. [Send] is disabled until a friend is
+  selected and while sending. Before sending it re-reads the entry
+  from the local DB and stops with "Entry is not synced yet." if it
+  is dirty. Success → `LocalDb.applyServerEntry(response)` (new
+  `meta` and `updated_at`) and close. Errors stay in the dialog
+  (`errorTitle(body)`; network error → "Not available offline.").
+  An `openSeq` counter drops late responses after a re-open.
+- **Received section (HomeView)** — below the friend request panel,
+  above the entry list. Heading "Received (n)"; rows show title, url
+  link, tags, "from <user> · <date>" and [Decline] [Accept]. Rows
+  are not clickable, not filtered by the search, hidden when empty.
+  Load on mount and whenever `SyncState.lastSyncAt` changes
+  (`loadPendingEntries`, sequence counter `pendingEntriesLoadSeq`);
+  load errors are silent. Actions run through `runReceivedAction`
+  (one busy id for all rows, inline error under the row). [Accept] →
+  `acceptPendingEntry`, then `LocalDb.applyServerEntry(response)`
+  (when the DB is ready) and `reloadKeepingPages()`, because the
+  `DB_CHANGE_EVENT` handler only refreshes already-loaded rows; then
+  the pending list reloads. [Decline] → `declinePendingEntry`, no
+  confirm.
+- **Meta footer (EditView)** — below the form, only when `meta` has
+  `shares` or `imported`: one line "Sent to <user> on <date>" per
+  share, one line "Imported from <user> on <date>". Dates via
+  `new Date(iso).toLocaleString()`.
 
 ## PWA
 

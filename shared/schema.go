@@ -1,3 +1,3 @@
 package shared
 
-const CurrentSchemaVersion = 2
+const CurrentSchemaVersion = 3

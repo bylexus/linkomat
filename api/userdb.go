@@ -22,9 +22,21 @@ type Entry struct {
 	URL       string     `gorm:"not null;default:''"`
 	Note      string     `gorm:"not null;default:''"`
 	Tags      string     `gorm:"not null;default:[];type:text"`
+	Meta      string     `gorm:"not null;default:'{}';type:text"`
 	CreatedAt time.Time  `gorm:"not null"`
 	UpdatedAt time.Time  `gorm:"not null;index"`
 	DeletedAt *time.Time `gorm:"index"`
+}
+
+type PendingEntry struct {
+	ID            string    `gorm:"primaryKey;size:64"`
+	FromUsername  string    `gorm:"not null"`
+	SourceEntryID string    `gorm:"not null"`
+	Title         string    `gorm:"not null;default:''"`
+	URL           string    `gorm:"not null;default:''"`
+	Note          string    `gorm:"not null;default:''"`
+	Tags          string    `gorm:"not null;default:[];type:text"`
+	SharedAt      time.Time `gorm:"not null;index"`
 }
 
 type EntrySchemaVersion struct {
@@ -102,7 +114,7 @@ func OpenUserDB(cfg *Config, username string) (*UserDB, error) {
 }
 
 func (u *UserDB) migrate() error {
-	if err := u.DB.AutoMigrate(&Entry{}, &EntrySchemaVersion{}); err != nil {
+	if err := u.DB.AutoMigrate(&Entry{}, &PendingEntry{}, &EntrySchemaVersion{}); err != nil {
 		return err
 	}
 	var sv EntrySchemaVersion

@@ -7,6 +7,8 @@ import { normalizeUrl } from '../utils/url';
 import { useAuth } from '../state/auth';
 import { useSyncState } from '../state/sync';
 import { syncNow } from '../sync/engine';
+import ShareIcon from '../components/icons/ShareIcon.vue';
+import ShareDialog from '../components/ShareDialog.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -131,6 +133,32 @@ async function onDelete(): Promise<void> {
   }
 }
 
+const shareDialog = ref<InstanceType<typeof ShareDialog> | null>(null);
+
+const shareLabel = computed(() => {
+  if (!syncState.value.online) return 'Offline';
+  if (loaded.value?.local_dirty_at) return 'Sync first';
+  return 'Share';
+});
+
+function onShare(): void {
+  if (!loaded.value || shareLabel.value !== 'Share') return;
+  shareDialog.value?.open(loaded.value);
+}
+
+const metaLines = computed<string[]>(() => {
+  const meta = loaded.value?.meta;
+  if (!meta) return [];
+  const lines: string[] = [];
+  for (const share of meta.shares ?? []) {
+    lines.push(`Sent to ${share.to} on ${new Date(share.at).toLocaleString()}`);
+  }
+  if (meta.imported) {
+    lines.push(`Imported from ${meta.imported.from} on ${new Date(meta.imported.at).toLocaleString()}`);
+  }
+  return lines;
+});
+
 function goBack(): void {
   router.push('/');
 }
@@ -168,15 +196,27 @@ const entryDotClass = computed(() => {
         <span class="edit-entry-dot" :class="entryDotClass" data-test="edit-entry-dot" aria-hidden="true" />
         <span class="edit-title">{{ loaded ? 'Edit entry' : 'New entry' }}</span>
       </div>
-      <button
-        v-if="loaded"
-        type="button"
-        class="icon-btn danger"
-        @click="onDelete"
-        data-test="edit-delete"
-      >
-        Delete
-      </button>
+      <div v-if="loaded" class="edit-header-actions">
+        <button
+          type="button"
+          class="icon-btn share-btn"
+          :disabled="shareLabel !== 'Share'"
+          :aria-label="shareLabel"
+          :title="shareLabel"
+          data-test="edit-share"
+          @click="onShare"
+        >
+          <ShareIcon width="1rem" height="1rem" />
+        </button>
+        <button
+          type="button"
+          class="icon-btn danger"
+          @click="onDelete"
+          data-test="edit-delete"
+        >
+          Delete
+        </button>
+      </div>
       <span v-else class="icon-btn-spacer" />
     </header>
 
@@ -279,7 +319,13 @@ const entryDotClass = computed(() => {
       </label>
 
       <p v-if="error" class="error" data-test="edit-error">{{ error }}</p>
+
+      <footer v-if="metaLines.length > 0" class="edit-meta" data-test="edit-meta">
+        <p v-for="(line, i) in metaLines" :key="i" class="edit-meta-line" data-test="edit-meta-line">{{ line }}</p>
+      </footer>
     </section>
+
+    <ShareDialog ref="shareDialog" />
   </main>
 </template>
 
@@ -291,11 +337,26 @@ const entryDotClass = computed(() => {
 }
 
 .edit-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
   gap: 0.5rem;
   margin-bottom: 0.5rem;
+}
+
+.edit-header > :first-child {
+  justify-self: start;
+}
+
+.edit-header-actions,
+.icon-btn-spacer {
+  justify-self: end;
+}
+
+.edit-header-actions {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
 }
 
 .edit-title-area {
@@ -412,6 +473,21 @@ const entryDotClass = computed(() => {
   color: #b91c1c;
 }
 
+.icon-btn.share-btn {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.375rem 0.5rem;
+  color: #374151;
+}
+
+.icon-btn:disabled {
+  color: #9ca3af;
+  background: none;
+  cursor: not-allowed;
+}
+
 .icon-btn-spacer {
   min-width: 4rem;
 }
@@ -514,5 +590,19 @@ const entryDotClass = computed(() => {
   color: #b91c1c;
   font-size: 0.875rem;
   margin: 0;
+}
+
+.edit-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+.edit-meta-line {
+  margin: 0;
+  font-size: 0.875rem;
+  color: #6b7280;
 }
 </style>

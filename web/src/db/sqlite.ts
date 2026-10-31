@@ -38,12 +38,18 @@ export type DbState =
     }
   | { kind: 'error'; message: string };
 
+export type EntryMeta = {
+  shares?: { to: string; at: string }[];
+  imported?: { from: string; shared_at: string; at: string };
+};
+
 export type Entry = {
   id: string;
   title: string;
   url: string;
   note: string;
   tags: string[];
+  meta: EntryMeta;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
@@ -51,7 +57,7 @@ export type Entry = {
   base_updated_at: string | null;
 };
 
-type EntryRow = Omit<Entry, 'tags'> & { tags: string };
+type EntryRow = Omit<Entry, 'tags' | 'meta'> & { tags: string; meta: string };
 
 export class LocalDb {
   private db: Database | null = null;
@@ -202,7 +208,7 @@ export class LocalDb {
       ? [cursor.updated_at, cursor.updated_at, cursor.id]
       : [];
     const stmt = this.db.prepare(`
-      SELECT id, title, url, note, tags, created_at, updated_at, deleted_at, local_dirty_at, base_updated_at
+      SELECT id, title, url, note, tags, meta, created_at, updated_at, deleted_at, local_dirty_at, base_updated_at
       FROM entries
       WHERE deleted_at IS NULL${cursorClause}
       ORDER BY updated_at DESC, id ASC
@@ -222,7 +228,7 @@ export class LocalDb {
   getEntry(id: string): Entry | null {
     if (!this.db) throw new Error('db not open');
     const stmt = this.db.prepare(
-      `SELECT id, title, url, note, tags, created_at, updated_at, deleted_at, local_dirty_at, base_updated_at
+      `SELECT id, title, url, note, tags, meta, created_at, updated_at, deleted_at, local_dirty_at, base_updated_at
        FROM entries WHERE id = ?`
     );
     stmt.bind([id]);
@@ -318,7 +324,7 @@ export class LocalDb {
       ? ' AND ((e.updated_at < ?) OR (e.updated_at = ? AND e.id > ?))'
       : '';
     const stmt = this.db.prepare(`
-      SELECT e.id, e.title, e.url, e.note, e.tags, e.created_at, e.updated_at, e.deleted_at, e.local_dirty_at, e.base_updated_at
+      SELECT e.id, e.title, e.url, e.note, e.tags, e.meta, e.created_at, e.updated_at, e.deleted_at, e.local_dirty_at, e.base_updated_at
       FROM entries_fts f, entries e
       WHERE f.docid = e.rowid
         AND entries_fts MATCH ?
@@ -361,7 +367,7 @@ export class LocalDb {
   listDirtyEntries(): Entry[] {
     if (!this.db) throw new Error('db not open');
     const stmt = this.db.prepare(`
-      SELECT id, title, url, note, tags, created_at, updated_at, deleted_at, local_dirty_at, base_updated_at
+      SELECT id, title, url, note, tags, meta, created_at, updated_at, deleted_at, local_dirty_at, base_updated_at
       FROM entries
       WHERE local_dirty_at IS NOT NULL
       ORDER BY local_dirty_at ASC, id ASC
@@ -385,10 +391,11 @@ export class LocalDb {
   private writeServerRow(entry: ServerEntry): void {
     if (!this.db) throw new Error('db not open');
     const tagsJson = JSON.stringify(entry.tags);
+    const metaJson = JSON.stringify(entry.meta ?? {});
     const deletedAt = entry.deleted_at ?? null;
     this.db.run(
       `UPDATE entries
-       SET title = ?, url = ?, note = ?, tags = ?,
+       SET title = ?, url = ?, note = ?, tags = ?, meta = ?,
            created_at = ?, updated_at = ?, deleted_at = ?,
            local_dirty_at = NULL, base_updated_at = NULL
        WHERE id = ?`,
@@ -397,6 +404,7 @@ export class LocalDb {
         entry.url,
         entry.note,
         tagsJson,
+        metaJson,
         entry.created_at,
         entry.updated_at,
         deletedAt,
@@ -406,14 +414,15 @@ export class LocalDb {
     if (this.db.getRowsModified() > 0) return;
     this.db.run(
       `INSERT INTO entries
-        (id, title, url, note, tags, created_at, updated_at, deleted_at, local_dirty_at, base_updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+        (id, title, url, note, tags, meta, created_at, updated_at, deleted_at, local_dirty_at, base_updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
       [
         entry.id,
         entry.title,
         entry.url,
         entry.note,
         tagsJson,
+        metaJson,
         entry.created_at,
         entry.updated_at,
         deletedAt,
@@ -464,6 +473,7 @@ export type ServerEntry = {
   created_at: string;
   updated_at: string;
   deleted_at: string | null | undefined;
+  meta?: EntryMeta | null;
 };
 
 function errorMessage(err: unknown, fallback: string): string {
@@ -487,7 +497,14 @@ function rowToEntry(row: EntryRow): Entry {
   } catch {
     tags = [];
   }
-  return { ...row, tags };
+  let meta: EntryMeta;
+  try {
+    const parsed: unknown = JSON.parse(row.meta);
+    meta = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as EntryMeta) : {};
+  } catch {
+    meta = {};
+  }
+  return { ...row, tags, meta };
 }
 
 function toFtsQuery(input: string): string {

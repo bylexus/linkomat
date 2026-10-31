@@ -13,6 +13,8 @@ import LogoutIcon from '../components/icons/LogoutIcon.vue';
 import FriendsIcon from '../components/icons/FriendsIcon.vue';
 import OnlineIcon from '../components/icons/OnlineIcon.vue';
 import OfflineIcon from '../components/icons/OfflineIcon.vue';
+import ShareIcon from '../components/icons/ShareIcon.vue';
+import ShareDialog from '../components/ShareDialog.vue';
 import type { Entry } from '../db/sqlite';
 import type { ApiResult } from '../api/client';
 import {
@@ -23,6 +25,12 @@ import {
   errorTitle,
   type Friendship,
 } from '../api/friendships';
+import {
+  listPendingEntries,
+  acceptPendingEntry,
+  declinePendingEntry,
+  type PendingEntry,
+} from '../api/pendingEntries';
 
 const { username, logout } = useAuth();
 const { state, db } = useDb(username.value);
@@ -191,6 +199,19 @@ function onRowClick(id: string): void {
   router.push(`/entries/${id}`);
 }
 
+const shareDialog = ref<InstanceType<typeof ShareDialog> | null>(null);
+
+function shareLabel(entry: Entry): string {
+  if (!syncState.value.online) return 'Offline';
+  if (entry.local_dirty_at) return 'Sync first';
+  return 'Share';
+}
+
+function onShare(entry: Entry): void {
+  if (shareLabel(entry) !== 'Share') return;
+  shareDialog.value?.open(entry);
+}
+
 function onFriends(): void {
   router.push('/friends');
 }
@@ -279,6 +300,80 @@ onMounted(() => {
   void loadFriendships();
 });
 
+const pendingEntries = ref<PendingEntry[]>([]);
+const receivedBusyId = ref<string | null>(null);
+const receivedError = ref<{ id: string; message: string } | null>(null);
+let pendingEntriesLoadSeq = 0;
+
+async function loadPendingEntries(): Promise<void> {
+  const seq = ++pendingEntriesLoadSeq;
+  const res = await listPendingEntries();
+  if (seq !== pendingEntriesLoadSeq) return;
+  if (res.kind === 'ok') {
+    pendingEntries.value = res.body.pending_entries ?? [];
+  }
+}
+
+async function runReceivedAction(id: string, action: () => Promise<boolean>): Promise<void> {
+  if (receivedBusyId.value !== null) return;
+  receivedBusyId.value = id;
+  receivedError.value = null;
+  try {
+    if (await action()) {
+      await loadPendingEntries();
+    }
+  } finally {
+    receivedBusyId.value = null;
+  }
+}
+
+function setReceivedError(id: string, res: ApiResult<unknown>): void {
+  if (res.kind === 'network-error') {
+    receivedError.value = { id, message: 'Not available offline.' };
+  } else if (res.kind !== 'ok') {
+    receivedError.value = { id, message: errorTitle(res.body) ?? 'Request failed.' };
+  }
+}
+
+function onReceivedAccept(id: string): void {
+  void runReceivedAction(id, async () => {
+    const res = await acceptPendingEntry(id);
+    if (res.kind !== 'ok') {
+      setReceivedError(id, res);
+      return false;
+    }
+    if (db && state.value.kind === 'ready') {
+      await db.applyServerEntry(res.body);
+    }
+    await reloadKeepingPages();
+    return true;
+  });
+}
+
+function onReceivedDecline(id: string): void {
+  void runReceivedAction(id, async () => {
+    const res = await declinePendingEntry(id);
+    if (res.kind !== 'ok') {
+      setReceivedError(id, res);
+      return false;
+    }
+    return true;
+  });
+}
+
+watch(
+  () => syncState.value.lastSyncAt,
+  (now, prev) => {
+    if (now !== null && now !== prev) {
+      void loadPendingEntries();
+    }
+  }
+);
+
+onMounted(() => {
+  void loadPendingEntries();
+});
+
 const stateLabel = computed(() => {
   if (syncState.value.syncing) return 'Syncing…';
   if (syncState.value.lastError) return `Error: ${syncState.value.lastError}`;
@@ -363,6 +458,34 @@ function rowDotClass(entry: Entry): string {
       </div>
     </section>
 
+    <section v-if="pendingEntries.length > 0" class="received" data-test="home-received">
+      <h2 class="received-heading">Received ({{ pendingEntries.length }})</h2>
+      <div class="received-list">
+        <div v-for="item in pendingEntries" :key="item.id" class="received-item" data-test="home-received-item"
+          :data-test-id="item.id">
+          <div class="row-title">{{ item.title || item.url || '(untitled)' }}</div>
+          <a v-if="item.url" class="row-url" :href="normalizeUrl(item.url)" target="_blank" rel="noopener noreferrer"
+            data-test="home-received-url">{{ item.url }}</a>
+          <div v-if="item.tags.length" class="row-tags">
+            <span v-for="tag in item.tags" :key="tag" class="tag-chip">{{ tag }}</span>
+          </div>
+          <div class="received-footer">
+            <span class="received-from">from {{ item.from }} · {{ new Date(item.shared_at).toLocaleString() }}</span>
+            <div class="received-actions">
+              <button type="button" class="btn btn-danger" :disabled="receivedBusyId !== null"
+                data-test="home-received-decline" @click="onReceivedDecline(item.id)">Decline</button>
+              <button type="button" class="btn btn-primary" :disabled="receivedBusyId !== null"
+                data-test="home-received-accept" @click="onReceivedAccept(item.id)">Accept</button>
+            </div>
+          </div>
+          <p v-if="receivedError && receivedError.id === item.id" class="received-error"
+            data-test="home-received-error">
+            {{ receivedError.message }}
+          </p>
+        </div>
+      </div>
+    </section>
+
     <section v-if="state.kind === 'pending'" class="banner" data-test="home-status">
       Loading local database…
     </section>
@@ -391,6 +514,11 @@ function rowDotClass(entry: Entry): string {
             <div v-if="item.tags.length" class="row-tags">
               <span v-for="tag in item.tags" :key="tag" class="tag-chip">{{ tag }}</span>
             </div>
+            <button type="button" class="row-share" :disabled="shareLabel(item) !== 'Share'"
+              :aria-label="shareLabel(item)" :title="shareLabel(item)" data-test="home-row-share"
+              @click.stop="onShare(item)">
+              <ShareIcon width="1rem" height="1rem" />
+            </button>
           </div>
         </div>
         <button v-if="hasMore" type="button" class="load-more" :disabled="isLoadingMore" data-test="home-load-more"
@@ -403,6 +531,8 @@ function rowDotClass(entry: Entry): string {
     <button type="button" class="fab" aria-label="Add entry" data-test="home-fab" @click="onFab">
       +
     </button>
+
+    <ShareDialog ref="shareDialog" />
   </main>
 </template>
 
@@ -558,6 +688,67 @@ function rowDotClass(entry: Entry): string {
   margin: 0.5rem 0 0 0;
 }
 
+.received {
+  margin-bottom: 1rem;
+}
+
+.received-heading {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.received-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.received-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  background: #ffffff;
+}
+
+.received-item .row-tags {
+  flex-wrap: wrap;
+}
+
+.received-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.received-from {
+  font-size: 0.75rem;
+  color: #6b7280;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.received-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.received-error {
+  color: #b91c1c;
+  font-size: 0.875rem;
+  margin: 0.25rem 0 0 0;
+}
+
 .btn {
   background: none;
   border: 1px solid #d1d5db;
@@ -673,7 +864,7 @@ function rowDotClass(entry: Entry): string {
   flex-direction: column;
   gap: 0.25rem;
   padding: 0.75rem 1rem;
-  padding-right: 1.75rem;
+  padding-right: 2.25rem;
   border-bottom: 1px solid #e5e7eb;
   height: 96px;
   overflow: hidden;
@@ -687,6 +878,35 @@ function rowDotClass(entry: Entry): string {
   top: 0.75rem;
   right: 0.75rem;
   pointer-events: none;
+}
+
+.row-share {
+  position: absolute;
+  bottom: 0.5rem;
+  right: 0.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem;
+  background: none;
+  border: none;
+  border-radius: 0.375rem;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+.row-share svg {
+  pointer-events: none;
+}
+
+.row-share:hover:not(:disabled) {
+  background: #f3f4f6;
+  color: #2563eb;
+}
+
+.row-share:disabled {
+  color: #d1d5db;
+  cursor: not-allowed;
 }
 
 .row-dot {

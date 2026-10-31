@@ -1,4 +1,5 @@
-import { apiGet, apiPut, apiDelete, type ApiResult } from './client';
+import { apiGet, apiPost, apiPut, apiDelete, type ApiResult } from './client';
+import type { EntryMeta } from '../db/sqlite';
 
 export type ServerEntry = {
   id: string;
@@ -9,6 +10,7 @@ export type ServerEntry = {
   created_at: string;
   updated_at: string;
   deleted_at: string | null | undefined;
+  meta?: EntryMeta | null;
 };
 
 export type EntriesListResponse = {
@@ -47,4 +49,8 @@ export async function putEntry(
 
 export async function deleteEntry(id: string): Promise<ApiResult<null>> {
   return apiDelete<null>(`/entries/${encodeURIComponent(id)}`);
+}
+
+export async function shareEntry(id: string, username: string): Promise<ApiResult<ServerEntry>> {
+  return apiPost<ServerEntry>(`/entries/${encodeURIComponent(id)}/share`, { username });
 }
