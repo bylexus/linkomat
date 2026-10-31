@@ -57,6 +57,8 @@ linkomat-server user activate <username>
 linkomat-server user deactivate <username>      # revokes all tokens
 linkomat-server user delete <username>          # drops the per-user DB file
 linkomat-server user purge                      # v1: manual cleanup of expired tokens
+linkomat-server user friends <username>         # list all friendships of a user (any state)
+linkomat-server user remove-friendship <id> | <user1> <user2>   # delete by ID or between two users
 
 linkomat-server version
 ```
@@ -86,11 +88,21 @@ make dev
 ```
 
 Runs Vite (`:5173`) and `go run ./api` (`:8080`) in parallel. The
-Vite dev server proxies nothing — the web app points directly at
-`:8080` for `/api/*`, `/auth/*`, `/healthz`, `/sqlite/*`, and the
-service-worker-pre-cached assets are served by `:8080` too. Vite's
-HMR is for the UI; OPFS state lives in the browser, so reloads in
-Vite keep the local DB.
+Vite dev server proxies nothing, and the web app calls the API with
+relative paths (`/auth/*`, `/entries*`, `/friendships*`,
+`/healthz`). On `:5173` these calls go to Vite, not to `:8080`, so
+login and sync do not work in this mode. Use it for UI work with
+HMR only.
+
+For a working end-to-end loop use:
+
+```sh
+make dev-server
+```
+
+Builds the SPA (`--mode expose-dev`), embeds it into the API binary
+and runs `go run ./api serve` on `:8080`. Everything is served from
+one origin, so login, cookies and sync work. No Vite HMR.
 
 ## Production / release
 

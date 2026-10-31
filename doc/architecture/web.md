@@ -23,16 +23,18 @@ source of truth for reads.
 web/src/
 ├── main.ts                # boot: load auth state, initSync(), create app, mount
 ├── App.vue                # auth-guard shell + RouterView + AppFooter
-├── router.ts              # 4 routes: /login, /about, /, /entries/:id
+├── router.ts              # 5 routes: /login, /about, /, /entries/:id, /friends
 ├── env.d.ts, sql.js.d.ts  # local type shims
 ├── api/
 │   ├── client.ts          # fetch wrapper + single in-flight 401→refresh
 │   ├── auth.ts            # login / logout / probe
-│   └── entries.ts         # listEntries / getEntry / putEntry / deleteEntry + DTOs
+│   ├── entries.ts         # listEntries / getEntry / putEntry / deleteEntry + DTOs
+│   └── friendships.ts     # list / create / accept / decline / delete friendship + DTOs (online-only)
 ├── components/
 │   ├── AppFooter.vue      # copyright + alexi.ch link + /about link; rendered below RouterView on every route
 │   └── icons/
 │       ├── LogoutIcon.vue   # inline-SVG logout glyph used by the icon-only logout button on HomeView
+│       ├── FriendsIcon.vue  # inline-SVG people glyph for the friends button on HomeView
 │       ├── OnlineIcon.vue   # inline-SVG wifi glyph for the online sync state
 │       └── OfflineIcon.vue  # inline-SVG wifi-glyph-with-slash for the offline sync state
 ├── db/
@@ -51,8 +53,9 @@ web/src/
 │   └── url.ts             # normalizeUrl on blur + render
 └── views/
     ├── LoginView.vue      # username + password form
-    ├── HomeView.vue       # search bar, virtualized list, FAB, sync chip row
+    ├── HomeView.vue       # search bar, virtualized list, FAB, sync chip row, friend request panel
     ├── EditView.vue       # title / url / tags / note, save-on-blur, delete
+    ├── FriendsView.vue    # friends list, request / accept / decline / remove (online-only)
     └── AboutView.vue      # static app description; reachable while logged out
 ```
 
@@ -130,7 +133,7 @@ thread**, not a `Worker` (despite the historical name).
 
 - `initSync()` is called from `main.ts` once. It starts
   `reachability`, watches `useAuth()`. On `logged-in`: attaches
-  listeners and starts the 5-min interval; calls `syncOnce()`.
+  listeners and starts the 1-min interval (`SYNC_INTERVAL_MS`); calls `syncOnce()`.
   On `logged-out`: detaches, stops the interval, resets sync state.
 - `syncOnce()` — single in-flight job. Skips with a
   `lastSkipReason` if already running, no username, offline, or DB
@@ -152,7 +155,7 @@ thread**, not a `Worker` (despite the historical name).
   >5 min of streak (`PERSISTENT_FAILURE_MS`), `persistentFailure`
   flips on and the UI shows "Retry now".
 - **Triggers** — `online` event, `visibilitychange` to visible,
-  5-min interval, `linkomat-db-change` (debounced 2s), manual
+  1-min interval, `linkomat-db-change` (debounced 2s), manual
   `syncNow()`.
 
 ## API client
@@ -167,6 +170,31 @@ thread**, not a `Worker` (despite the historical name).
   `setLogoutHandler` runs and the 401 is returned.
 - Returns an `ApiResult<T>`: `ok` / `http-error` / `network-error`.
   Callers inspect `kind` rather than throwing.
+
+## Friends
+
+Friendships are **online-only**: they live only on the server (meta
+DB), not in the local sql.js DB, and the sync engine does not touch
+them. Views call `api/friendships.ts` (through `apiGet` / `apiPost` / `apiDelete` in
+`api/client.ts`) directly. The client compares `requested_by` /
+`accepted_by` with its own username to tell incoming from outgoing.
+
+- **`FriendsView`** (`/friends`) — accepted friends [Remove] (with
+  `window.confirm()`), own pending requests [Withdraw], incoming
+  pending requests [Accept][Decline]. Own declined requests are not
+  listed here. FAB "+" opens a native `<dialog>` to send a request
+  by username; errors stay in the dialog. Network error on load →
+  "Friends are not available offline."
+- **`HomeView`** — friends icon button (left of logout) routes to
+  `/friends` and shows a badge with the number of open items. A
+  request panel below the sticky header lists incoming pending
+  requests [Accept][Decline] and own declined requests [OK] (deletes
+  the row). Hidden when empty.
+- **Load triggers on home** — on mount and whenever
+  `SyncState.lastSyncAt` changes (so it follows the sync engine's
+  interval / online / focus triggers). Load errors are silent: the
+  panel keeps the last data or shows nothing. Action errors show
+  inline under the item.
 
 ## PWA
 

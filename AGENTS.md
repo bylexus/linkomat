@@ -36,6 +36,8 @@ Quick map for a fresh reading LLM agent. **Read this file first.**
     `LocalDb.open()` will sidecar the old file and recreate.
   - `DB_CHANGE_EVENT` (`'linkomat-db-change'`) is the cross-view
     notification; `HomeView` and `EditView` listen to it.
+  - Friendships are server-only (online API calls); they are not
+    in the local sql.js DB and not part of the sync engine.
   - FTS3 (not FTS5) is what's available in `sql.js@1.14.2`'s
     WASM. Triggers strip JSON syntax from `tags` before indexing.
 - **Server specific**:
@@ -44,9 +46,10 @@ Quick map for a fresh reading LLM agent. **Read this file first.**
   - `tags` is JSON-in-TEXT (not a normalised table).
   - `authenticate` writes its 401/403/500 directly and returns
     `nil` — the mux never runs. New routes that need auth must
-    match the `/entries*` prefix in `needsAuth`, or
-    `authenticate` will let them through.
-  - All `/api/*` routes go through `apiHeaders` middleware
+    match the `/entries*` or `/friendships*` prefix in
+    `needsAuth`, or `authenticate` will let them through.
+  - All API routes (every route except the `/` web-asset
+    catch-all) go through `apiHeaders` middleware
     (sets `Cache-Control: no-store, private`). Web assets do
     **not** — workbox precache needs HTTP caching.
 
@@ -61,6 +64,7 @@ Quick map for a fresh reading LLM agent. **Read this file first.**
 | Sync reachability           | `web/src/sync/reachability.ts`                                                |
 | API client / 401 refresh    | `web/src/api/client.ts`                                                       |
 | PWA / service worker config | `web/vite.config.ts`                                                          |
+| Friendships (API / web)     | `api/handlers_friendships.go`, `api/models.go`, `shared/friendship.go`, `web/src/api/friendships.ts`, `web/src/views/FriendsView.vue`, `web/src/views/HomeView.vue` |
 | Cookie / DTO constant       | `shared/cookies.go`, `shared/auth.go`, `shared/entry.go`, `shared/entries.go` |
 | Build targets               | `Makefile`                                                                    |
 | Plan / design               | `docs/agent-plans/<feature>.md` for the in-flight feature                    |

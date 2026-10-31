@@ -43,7 +43,7 @@ func OpenMetaDB(cfg *Config) (*MetaDB, error) {
 }
 
 func (m *MetaDB) migrate() error {
-	if err := m.DB.AutoMigrate(&User{}, &Token{}, &SchemaVersion{}); err != nil {
+	if err := m.DB.AutoMigrate(&User{}, &Token{}, &Friendship{}, &SchemaVersion{}); err != nil {
 		return err
 	}
 	var sv SchemaVersion

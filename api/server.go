@@ -50,6 +50,11 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /entries/{id}", apiH(http.HandlerFunc(s.handleEntryGet)))
 	s.mux.Handle("PUT /entries/{id}", apiH(http.HandlerFunc(s.handleEntryPut)))
 	s.mux.Handle("DELETE /entries/{id}", apiH(http.HandlerFunc(s.handleEntryDelete)))
+	s.mux.Handle("GET /friendships", apiH(http.HandlerFunc(s.handleFriendshipsList)))
+	s.mux.Handle("POST /friendships", apiH(http.HandlerFunc(s.handleFriendshipCreate)))
+	s.mux.Handle("POST /friendships/{id}/accept", apiH(http.HandlerFunc(s.handleFriendshipAccept)))
+	s.mux.Handle("POST /friendships/{id}/decline", apiH(http.HandlerFunc(s.handleFriendshipDecline)))
+	s.mux.Handle("DELETE /friendships/{id}", apiH(http.HandlerFunc(s.handleFriendshipDelete)))
 	s.mux.Handle("GET /healthz", apiH(http.HandlerFunc(s.handleHealthz)))
 	s.mux.Handle("GET /version", apiH(http.HandlerFunc(s.handleVersion)))
 	s.mux.Handle("/", http.HandlerFunc(s.handleWebAssets))
@@ -159,6 +164,11 @@ func userIDFromCtx(ctx context.Context) string {
 		return ""
 	}
 	return strconv.FormatUint(uint64(v), 10)
+}
+
+func userIDValueFromCtx(ctx context.Context) uint {
+	v, _ := ctx.Value(ctxKeyUserID).(uint)
+	return v
 }
 
 func usernameFromCtx(ctx context.Context) string {

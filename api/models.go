@@ -28,3 +28,18 @@ type Token struct {
 type SchemaVersion struct {
 	Version int `gorm:"primaryKey"`
 }
+
+type Friendship struct {
+	ID            string    `gorm:"primaryKey"`
+	RequestedByID uint      `gorm:"not null;uniqueIndex:idx_friends_pair,priority:1"`
+	RequestedBy   User      `gorm:"foreignKey:RequestedByID;constraint:OnDelete:CASCADE"`
+	AcceptedByID  uint      `gorm:"not null;uniqueIndex:idx_friends_pair,priority:2"`
+	AcceptedBy    User      `gorm:"foreignKey:AcceptedByID;constraint:OnDelete:CASCADE"`
+	RequestedAt   time.Time `gorm:"not null"`
+	AcceptedAt    *time.Time
+	DeclinedAt    *time.Time
+}
+
+func (Friendship) TableName() string {
+	return "friends"
+}

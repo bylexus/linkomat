@@ -38,8 +38,9 @@ repo root drives builds. Details in [build.md](build.md).
 ┌─────────────────┐         ┌────────────────────────────┐
 │      cli        │  HTTPS  │           api              │
 │  Go + cobra     │ Bearer  │  Go net/http + GORM        │
-│  (online only)  │────────▶│  - meta DB (users/tokens)  │
-└─────────────────┘         │  - per-user SQLite cache   │
+│  (online only)  │────────▶│  - meta DB (users/tokens/  │
+└─────────────────┘         │    friends)                │
+                            │  - per-user SQLite cache   │
                             │  - embeds web/ as go:embed │
                             └────────────────────────────┘
                                      │
@@ -71,10 +72,11 @@ reverse proxy (Caddy, nginx, Traefik, …). See
 
 ## Data flow at a glance
 
-- **Writes (web)** happen against the local sql.js DB first, mark
+- **Writes (web)** of entries happen against the local sql.js DB first, mark
   `local_dirty_at`, and get pushed FIFO by the sync engine.
 - **Writes (CLI)** go straight to the server (`PUT /entries/:id`).
-- **Reads (web)** are always against the local DB. The sync engine
+- **Reads (web)** of entries are always against the local DB
+  (friendships are online-only, see [web.md](web.md)). The sync engine
   pulls server deltas via `GET /entries?changed_since=<cursor>` and
   applies them locally.
 - **Auth** is opaque 32-byte hex tokens; sessions are rows in the

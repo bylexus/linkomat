@@ -28,6 +28,8 @@ func newUserCmd() *cobra.Command {
 	cmd.AddCommand(newUserDeleteCmd())
 	cmd.AddCommand(newUserListCmd())
 	cmd.AddCommand(newUserPurgeCmd())
+	cmd.AddCommand(newUserFriendsCmd())
+	cmd.AddCommand(newUserRemoveFriendshipCmd())
 	return cmd
 }
 
@@ -310,6 +312,113 @@ func newUserPurgeCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func newUserFriendsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "friends <username>",
+		Short: "List all friendships of the user (all states)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := LoadConfig()
+			if err != nil {
+				return err
+			}
+			meta, err := OpenMetaDB(cfg)
+			if err != nil {
+				return err
+			}
+			defer meta.Close()
+			u, err := findUserByName(meta, args[0])
+			if err != nil {
+				return err
+			}
+			var rows []Friendship
+			err = meta.Preload("RequestedBy").Preload("AcceptedBy").
+				Where("requested_by_id = ? OR accepted_by_id = ?", u.ID, u.ID).
+				Order("requested_at desc").
+				Find(&rows).Error
+			if err != nil {
+				return err
+			}
+			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+			fmt.Fprintln(tw, "ID\tREQUESTED_BY\tACCEPTED_BY\tSTATUS\tREQUESTED_AT\tACCEPTED_AT\tDECLINED_AT")
+			for i := range rows {
+				f := &rows[i]
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+					f.ID, f.RequestedBy.Username, f.AcceptedBy.Username, friendshipStatus(f),
+					f.RequestedAt.Format(time.RFC3339), formatOptionalTime(f.AcceptedAt), formatOptionalTime(f.DeclinedAt))
+			}
+			return tw.Flush()
+		},
+	}
+}
+
+func newUserRemoveFriendshipCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "remove-friendship <id> | <user1> <user2>",
+		Short: "Delete a friendship by ID, or the one between two users (either direction)",
+		Args:  cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := LoadConfig()
+			if err != nil {
+				return err
+			}
+			meta, err := OpenMetaDB(cfg)
+			if err != nil {
+				return err
+			}
+			defer meta.Close()
+			q := meta.Preload("RequestedBy").Preload("AcceptedBy")
+			var notFound error
+			if len(args) == 1 {
+				q = q.Where("id = ?", args[0])
+				notFound = fmt.Errorf("friendship %q not found", args[0])
+			} else {
+				u1, err := findUserByName(meta, args[0])
+				if err != nil {
+					return err
+				}
+				u2, err := findUserByName(meta, args[1])
+				if err != nil {
+					return err
+				}
+				q = q.Where("(requested_by_id = ? AND accepted_by_id = ?) OR (requested_by_id = ? AND accepted_by_id = ?)",
+					u1.ID, u2.ID, u2.ID, u1.ID)
+				notFound = fmt.Errorf("no friendship between %q and %q", args[0], args[1])
+			}
+			var f Friendship
+			if err := q.First(&f).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return notFound
+				}
+				return err
+			}
+			if err := meta.Where("id = ?", f.ID).Delete(&Friendship{}).Error; err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "removed friendship %s (%s -> %s)\n", f.ID, f.RequestedBy.Username, f.AcceptedBy.Username)
+			return nil
+		},
+	}
+}
+
+func findUserByName(meta *MetaDB, username string) (User, error) {
+	var u User
+	if err := meta.Where("username = ?", username).First(&u).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return u, fmt.Errorf("user %q does not exist", username)
+		}
+		return u, err
+	}
+	return u, nil
+}
+
+func formatOptionalTime(t *time.Time) string {
+	if t == nil {
+		return "-"
+	}
+	return t.Format(time.RFC3339)
 }
 
 var stdinReader = bufio.NewReader(os.Stdin)
