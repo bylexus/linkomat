@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useDb } from '../db';
 import { DB_CHANGE_EVENT, type Entry } from '../db/sqlite';
@@ -39,8 +39,11 @@ function onDbChange(): void {
   reloadLoaded();
 }
 
-onMounted(() => {
-  if (!db || state.value.kind !== 'ready') return;
+let initialLoadDone = false;
+
+function loadInitial(): void {
+  if (initialLoadDone || !db || state.value.kind !== 'ready') return;
+  initialLoadDone = true;
   const existing = db.getEntry(id.value);
   if (existing) {
     loaded.value = existing;
@@ -49,6 +52,12 @@ onMounted(() => {
     form.note = existing.note;
     form.tags = [...existing.tags];
   }
+}
+
+watch(state, loadInitial);
+
+onMounted(() => {
+  loadInitial();
   window.addEventListener(DB_CHANGE_EVENT, onDbChange);
 });
 

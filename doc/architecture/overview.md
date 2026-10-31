@@ -19,7 +19,7 @@ user-scoped from day one.
 | Binaries | `cmd/`     | Go entry points. `cmd/linkomat-server/main.go` builds `linkomat-server`. | [api.md](api.md)                  |
 | Web     | `web/`      | Vue 3 + TS PWA. Local-first, offline-capable, syncs with the server.   | [web.md](web.md)                  |
 | Shared  | `shared/`   | Go DTOs and constants used by the server.                              | (see `shared/*.go`)               |
-| Docs    | `doc/`      | `architecture/` (this tree), `agent-plans/` (in-flight feature plans), `bruno-api-tests/` (manual API test collection). | — |
+| Docs    | `doc/`      | `architecture/` (this tree), `bruno-api-tests/` (manual API test collection). Feature plans live in `docs/agent-plans/` (note: `docs`, not `doc`). | — |
 
 A root `go.work` wires `api`, `cmd`, and `shared`. A `Makefile` at the
 repo root drives builds. Details in [build.md](build.md).

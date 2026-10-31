@@ -148,8 +148,9 @@ onBeforeRouteLeave(async (to) => {
 onMounted(async () => {
   if (isPreserved.value) {
     isPreserved.value = false;
+    const searchChanges = debouncedSearch.value !== search.value;
     debouncedSearch.value = search.value;
-    skipNextReload = state.value.kind === 'ready' ? 1 : 2;
+    skipNextReload = (searchChanges ? 1 : 0) + (state.value.kind === 'ready' ? 0 : 1);
     if (state.value.kind !== 'ready') {
       await new Promise<void>((resolve) => {
         const stop = watch(state, (s) => {
