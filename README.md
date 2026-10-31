@@ -6,12 +6,11 @@ Linkomat is a small tool to keep track of my web link and notes collection. It s
 
 ## Feature whislist
 
-* available as Web app (PWA) and CLI (terminal app)
+* available as Web app (PWA)
 * Web App: Local first, Offline first: all data is available locally and is synced automatically from/to the server.
 * Server: simple storage: uses an sqlite db per user to store data
 * An entry consists of a title, url, note field, timestamp, tags
 * central server offers web ui plus api
-* cli uses api of the web server
 * authenticated only. Auth using username/pw, which then issues a short-lived token and a longer-lived refresh token
 
 ## Architecture
@@ -27,7 +26,6 @@ The system consists of the following components:
 	* syncs with the server in the background
 	* sync atomicity per entry (sync is done on entry-level)
 	* no merge conflict handling: last save wins. It is mainly used by a single user, working on one entry at a time
-* CLI that allows searching / entering / editing entries
 
 ### API Server
 
@@ -64,26 +62,18 @@ The system consists of the following components:
   * note editing view, with auto-save, delete
 
 
-### CLI
-
-* Golang based
-* Auth tokens stored locally in user's home config dir
-* online-only: does direct api calls, no offline storage (first version)
-* auto-refreshes token on usage
-* works with sub-commands, e.g. `linkomat add "title"`, `linkomat search ......`
-* edit command opens local editor (e.g. `linkomat edit foo` --> opens vim, watches file changes, saves)
-
 ### Project structure
 
 The project should use the following file structure:
 
 ```
 .
-├── api             # the GO server part
-│   ├── go.mod
-│   └── main.go
-├── cli             # the GO cli client
+├── api             # the GO server part (package api)
 │   └── go.mod
+├── cmd             # the GO entry points (binaries)
+│   ├── go.mod
+│   └── linkomat-server
+│       └── main.go # builds to linkomat-server
 ├── doc             # documentation goes here
 ├── go.work         # the GO workspace
 ├── README.md
@@ -102,5 +92,4 @@ The project should use the following file structure:
 - sortable home list: by last modified or by AZ, asc/desc
 - link checker: go through all links and check which ones still return 200
 
-- CLI client (design in doc/architecture/cli.md)
 - WebSocket connection to clients of the same user, to push a sync instead of polling

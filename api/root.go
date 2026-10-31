@@ -1,13 +1,10 @@
-package main
+package api
 
 import (
-	"fmt"
-	"os"
-
 	"github.com/spf13/cobra"
 )
 
-func main() {
+func NewRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "linkomat-server",
 		Short:         "Linkomat server",
@@ -17,8 +14,5 @@ func main() {
 	root.AddCommand(newServeCmd())
 	root.AddCommand(newUserCmd())
 	root.AddCommand(newVersionCmd())
-	if err := root.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
-	}
+	return root
 }

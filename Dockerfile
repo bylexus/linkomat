@@ -12,14 +12,14 @@ WORKDIR /src
 
 COPY go.work go.work.sum ./
 COPY shared/ ./shared/
-COPY cli/ ./cli/
 COPY api/ ./api/
+COPY cmd/ ./cmd/
 COPY --from=web-builder /build/web/dist ./api/web_dist
 
-WORKDIR /src/api
+WORKDIR /src/cmd
 
 RUN go mod download \
- && CGO_ENABLED=1 go build -ldflags='-s -w' -o /out/linkomat-server .
+ && CGO_ENABLED=1 go build -ldflags='-s -w' -o /out/linkomat-server ./linkomat-server
 
 FROM gcr.io/distroless/base-debian12:nonroot
 

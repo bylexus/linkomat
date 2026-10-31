@@ -6,12 +6,11 @@
 |-------------------------------------|---------------------------------------------------------------------------|
 | `make build-server`                 | Build `bin/linkomat-server`. Depends on `web-embed` (Vite build + copy).  |
 | `make build-server-expose-dev`      | Same as above but Vite `--mode expose-dev` — `window.__linkomatDb` + `window.__linkomatSync` survive in the embedded bundle for manual DevTools seeding. |
-| `make build-cli`                    | Build `bin/linkomat`.                                                    |
 | `make web-build`                    | `npm install` + `npm run build` in `web/`.                               |
 | `make web-embed`                    | `web-build` + copy `web/dist/*` into `api/web_dist/` for `go:embed`.     |
-| `make dev`                          | Run the Vite dev server (`http://localhost:5173`) and `go run ./api` (`:8080`) in parallel. |
-| `make tidy`                         | `go mod tidy` across `api`, `cli`, `shared`.                             |
-| `make all`                          | `build-server` + `build-cli`.                                            |
+| `make dev`                          | Run the Vite dev server (`http://localhost:5173`) and `go run ./cmd/linkomat-server` (`:8080`) in parallel. |
+| `make tidy`                         | `go mod tidy` across `api`, `cmd`, `shared`.                             |
+| `make all`                          | `build-server`.                                                          |
 | `make api-test`                     | Run the Bruno collection (`doc/bruno-api-tests/`) against a running server. |
 | `make api-test-auth`                | Run only the `auth/` folder.                                             |
 | `make api-test-req REQ=auth/login`  | Run a single request by name (path is `<folder>/<name>`).                 |
@@ -87,7 +86,7 @@ Override target / creds with `BRUNO_BASEURL`, `BRUNO_USER`,
 make dev
 ```
 
-Runs Vite (`:5173`) and `go run ./api` (`:8080`) in parallel. The
+Runs Vite (`:5173`) and `go run ./cmd/linkomat-server` (`:8080`) in parallel. The
 Vite dev server proxies nothing, and the web app calls the API with
 relative paths (`/auth/*`, `/entries*`, `/friendships*`,
 `/healthz`). On `:5173` these calls go to Vite, not to `:8080`, so
@@ -101,7 +100,7 @@ make dev-server
 ```
 
 Builds the SPA (`--mode expose-dev`), embeds it into the API binary
-and runs `go run ./api serve` on `:8080`. Everything is served from
+and runs `go run ./cmd/linkomat-server serve` on `:8080`. Everything is served from
 one origin, so login, cookies and sync work. No Vite HMR.
 
 ## Production / release

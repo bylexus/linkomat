@@ -1,12 +1,17 @@
 # API server (`api/`)
 
-Go 1.22+ HTTP server. Owns persistence and auth; embeds the web PWA
-so one binary serves both the API and the static SPA.
+Go 1.22+ HTTP server, `package api` (module
+`github.com/bylexus/linkomat/api`). Owns persistence and auth; embeds
+the web PWA so one binary serves both the API and the static SPA.
 
 ## Entry points
 
-- `api/main.go` — `cobra` root. Subcommands: `serve` (default),
-  `user` (CRUD), `version`.
+- `cmd/linkomat-server/main.go` — the binary's `main` (module
+  `github.com/bylexus/linkomat/cmd`). Calls `api.NewRootCmd().Execute()`
+  and exits 1 on error. Builds to `linkomat-server`.
+- `api/root.go` — `NewRootCmd()`: `cobra` root. Subcommands: `serve`
+  (default), `user` (CRUD), `version`. The only exported entry point
+  of the `api` package.
 - `api/cmd_serve.go` — `serve`: opens meta DB, opens per-user DB
   cache, builds the `Server`, blocks on `ListenAndServe`.
 - `api/cmd_user.go` — `user create | set-password | activate |
@@ -177,7 +182,7 @@ a first visit or hard reload without the SW would get JSON.
   and returns `nil`, so the mux never runs.
 - "Where does this header come from?" — `Server.middleware` (security
   headers) and `Server.apiHeaders` (`Cache-Control` for all API routes).
-- "How do I add a new CLI/web-facing endpoint?" — add the route in
+- "How do I add a new web-facing endpoint?" — add the route in
   `Server.routes`, the handler in a `handlers_*.go` file, the DTO in
   `shared/`, and a Bruno request in `../bruno-api-tests/`.
 - "How is the per-user DB file laid out?" — `api/userdb.go` (model)

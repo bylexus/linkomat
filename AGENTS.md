@@ -10,7 +10,6 @@ Quick map for a fresh reading LLM agent. **Read this file first.**
    about to touch:
    - `doc/architecture/api.md` — Go server
    - `doc/architecture/web.md` — Vue 3 PWA
-   - `doc/architecture/cli.md` — Go CLI (placeholder)
    - `doc/architecture/build.md` — build, run, test
 3. If an in-flight feature is being worked on, its plan lives at
    `docs/agent-plans/<feature>.md`. Architecture is the source of
@@ -67,5 +66,6 @@ Quick map for a fresh reading LLM agent. **Read this file first.**
 | Friendships (API / web)     | `api/handlers_friendships.go`, `api/models.go`, `shared/friendship.go`, `web/src/api/friendships.ts`, `web/src/views/FriendsView.vue`, `web/src/views/HomeView.vue` |
 | Cookie / DTO constant       | `shared/cookies.go`, `shared/auth.go`, `shared/entry.go`, `shared/entries.go` |
 | Build targets               | `Makefile`                                                                    |
+| Server binary entry point   | `cmd/linkomat-server/main.go` → `api.NewRootCmd()` in `api/root.go`           |
 | Plan / design               | `docs/agent-plans/<feature>.md` for the in-flight feature                    |
 | Architecture docs           | `doc/architecture/*.md`                                                       |

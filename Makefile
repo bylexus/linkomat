@@ -5,10 +5,10 @@ NPM        ?= npm
 BRUNO      ?= bru
 WEB_DIR    := web
 API_DIR    := api
-CLI_DIR    := cli
+CMD_DIR    := cmd
+SERVER_PKG := ./$(CMD_DIR)/linkomat-server
 BRUNO_DIR  := doc/bruno-api-tests
 SERVER_BIN := bin/linkomat-server
-CLI_BIN    := bin/linkomat
 
 BRUNO_ENV     ?= Local
 BRUNO_BASEURL ?= http://localhost:8080
@@ -28,7 +28,7 @@ IMAGE_SHA   := $(REGISTRY)/$(IMAGE_NAME):$(GIT_SHA)
 
 BUILDX_BASE := --platform $(PLATFORMS) --tag $(IMAGE) --tag $(IMAGE_SHA) --progress plain
 
-.PHONY: help build-server build-server-expose-dev build-cli web-build web-embed web-embed-expose-dev image-build image-push dev dev-server clean tidy all api-test api-test-auth api-test-req api-test-reset
+.PHONY: help build-server build-server-expose-dev web-build web-embed web-embed-expose-dev image-build image-push dev dev-server clean tidy all api-test api-test-auth api-test-req api-test-reset
 
 help:
 	@echo "Targets:"
@@ -39,7 +39,6 @@ help:
 	@echo "                   Same as build-server but with Vite --mode expose-dev;"
 	@echo "                     the embedded bundle exposes window.__linkomatDb"
 	@echo "                     for manual DevTools seeding on :8080"
-	@echo "  build-cli        Build the CLI to $(CLI_BIN)"
 	@echo "  web-build        Install deps and build the web PWA to web/dist"
 	@echo "  web-embed        Copy web/dist into api/web_dist/ for the embedded"
 	@echo "                     server binary (runs web-build first)"
@@ -56,7 +55,7 @@ help:
 	@echo "                     (login is broken here — Vite dev server has no proxy;"
 	@echo "                     use 'make dev-server' for a working end-to-end loop)"
 	@echo "  dev-server       Build the web SPA (--mode expose-dev), embed it into the API"
-	@echo "                     binary, and run 'go run ./api' on :8080. No Vite HMR, but the"
+	@echo "                     binary, and run 'go run $(SERVER_PKG)' on :8080. No Vite HMR, but the"
 	@echo "                     login flow + cookies + sync actually work because everything"
 	@echo "                     is served from the same origin. Exposes window.__linkomatDb"
 	@echo "                     for manual DevTools seeding, like 'make dev'."
@@ -80,7 +79,7 @@ BRUNO_VARS = --env-var baseUrl=$(BRUNO_BASEURL) --env-var username=$(BRUNO_USER)
 
 build-server: web-embed
 	@mkdir -p bin
-	$(GO) build -o $(SERVER_BIN) ./$(API_DIR)
+	$(GO) build -o $(SERVER_BIN) $(SERVER_PKG)
 
 build-server-expose-dev:
 	cd $(WEB_DIR) && bash -lc '$(NVM_LOAD) && $(NPM) run build -- --mode expose-dev'
@@ -89,11 +88,7 @@ build-server-expose-dev:
 	@cp -R $(WEB_DIR)/dist/. $(API_DIR)/web_dist/
 	@echo "Embedded $$(ls $(API_DIR)/web_dist | wc -l | tr -d ' ') top-level files into api/web_dist/ (expose-dev)"
 	@mkdir -p bin
-	$(GO) build -o $(SERVER_BIN) ./$(API_DIR)
-
-build-cli:
-	@mkdir -p bin
-	$(GO) build -o $(CLI_BIN) ./$(CLI_DIR)
+	$(GO) build -o $(SERVER_BIN) $(SERVER_PKG)
 
 web-build:
 	cd $(WEB_DIR) && bash -lc '$(NVM_LOAD) && $(NPM) install && $(NPM) run build'
@@ -122,19 +117,19 @@ dev:
 	@echo "Starting Go server on :8080"
 	@trap 'kill 0' EXIT INT TERM; \
 	bash -lc 'cd $(WEB_DIR) && $(NVM_LOAD) && $(NPM) run dev' & \
-	$(GO) run ./$(API_DIR) & \
+	$(GO) run $(SERVER_PKG) & \
 	wait
 
 dev-server: web-embed-expose-dev
 	@echo "Starting Go server on http://localhost:8080 (embedded SPA, no Vite HMR, expose-dev build)"
-	$(GO) run ./$(API_DIR) serve
+	$(GO) run $(SERVER_PKG) serve
 
 tidy:
 	cd $(API_DIR) && $(GO) mod tidy
-	cd $(CLI_DIR) && $(GO) mod tidy
+	cd $(CMD_DIR) && $(GO) mod tidy
 	cd shared && $(GO) mod tidy
 
-all: build-server build-cli
+all: build-server
 
 api-test:
 	cd $(BRUNO_DIR) && $(BRUNO) run auth entries meta --env $(BRUNO_ENV) $(BRUNO_VARS) || true

@@ -7,21 +7,21 @@ the part it needs to touch.
 ## What it is
 
 Linkomat is a self-hosted, single-operator bookmark/note store with a
-web PWA and a CLI. One Go server owns persistence; everything else is a
-client. v1 is a single-user-style MVP, but the data model is
+web PWA. One Go server owns persistence and ships an admin CLI
+(`linkomat-server`); the PWA is the client. v1 is a single-user-style MVP, but the data model is
 user-scoped from day one.
 
 ## Components
 
 | Part    | Path        | Role                                                                  | Doc                               |
 |---------|-------------|-----------------------------------------------------------------------|-----------------------------------|
-| Server  | `api/`      | Go HTTP server. Meta DB, per-user SQLite, auth, sync API, embedded PWA. | [api.md](api.md)                  |
+| Server  | `api/`      | Go HTTP server (`package api`). Meta DB, per-user SQLite, auth, sync API, embedded PWA, admin CLI commands. | [api.md](api.md)                  |
+| Binaries | `cmd/`     | Go entry points. `cmd/linkomat-server/main.go` builds `linkomat-server`. | [api.md](api.md)                  |
 | Web     | `web/`      | Vue 3 + TS PWA. Local-first, offline-capable, syncs with the server.   | [web.md](web.md)                  |
-| CLI     | `cli/`      | Go CLI. Online-only client over the same API.                          | [cli.md](cli.md)                  |
-| Shared  | `shared/`   | Go DTOs and constants shared between server and CLI.                   | (see `shared/*.go`)               |
+| Shared  | `shared/`   | Go DTOs and constants used by the server.                              | (see `shared/*.go`)               |
 | Docs    | `doc/`      | `architecture/` (this tree), `agent-plans/` (in-flight feature plans), `bruno-api-tests/` (manual API test collection). | — |
 
-A root `go.work` wires `api`, `cli`, and `shared`. A `Makefile` at the
+A root `go.work` wires `api`, `cmd`, and `shared`. A `Makefile` at the
 repo root drives builds. Details in [build.md](build.md).
 
 ## How the parts fit
@@ -35,11 +35,11 @@ repo root drives builds. Details in [build.md](build.md).
                        └─────────────┬──────────────┘
                                      │ HTTPS (cookies)
                                      ▼
-┌─────────────────┐         ┌────────────────────────────┐
-│      cli        │  HTTPS  │           api              │
-│  Go + cobra     │ Bearer  │  Go net/http + GORM        │
-│  (online only)  │────────▶│  - meta DB (users/tokens/  │
-└─────────────────┘         │    friends)                │
+                            ┌────────────────────────────┐
+                            │           api              │
+                            │  Go net/http + GORM        │
+                            │  - meta DB (users/tokens/  │
+                            │    friends)                │
                             │  - per-user SQLite cache   │
                             │  - embeds web/ as go:embed │
                             └────────────────────────────┘
@@ -52,17 +52,16 @@ repo root drives builds. Details in [build.md](build.md).
                             └─────────────────┘
 ```
 
-Two HTTP clients, one API:
+One HTTP client, one API:
 
 - **Web PWA** — uses the `linkomat_auth` (access) and
   `linkomat_refresh` (refresh) cookies. JS never reads them. On 401
   the API client (`web/src/api/client.ts`) attempts one
   `POST /auth/refresh`, retries the original request, and on failure
   routes the user back to `/login`.
-- **CLI** — uses `Authorization: Bearer <access_token>` for non-auth
-  routes and sends the refresh token in the JSON body of
-  `/auth/refresh`. Tokens persist in
-  `~/.config/linkomat/credentials.json` (mode 0600).
+- **Non-browser clients** (curl, Bruno) can use
+  `Authorization: Bearer <access_token>` for non-auth routes and send
+  the refresh token in the JSON body of `/auth/refresh`.
 
 The server is the **only** component that touches the database. It
 runs plain HTTP and is expected to live behind a TLS-terminating
@@ -74,7 +73,6 @@ reverse proxy (Caddy, nginx, Traefik, …). See
 
 - **Writes (web)** of entries happen against the local sql.js DB first, mark
   `local_dirty_at`, and get pushed FIFO by the sync engine.
-- **Writes (CLI)** go straight to the server (`PUT /entries/:id`).
 - **Reads (web)** of entries are always against the local DB
   (friendships are online-only, see [web.md](web.md)). The sync engine
   pulls server deltas via `GET /entries?changed_since=<cursor>` and
@@ -87,5 +85,4 @@ reverse proxy (Caddy, nginx, Traefik, …). See
 
 - Editing server code? Read [api.md](api.md).
 - Editing the web app? Read [web.md](web.md).
-- Editing the CLI? Read [cli.md](cli.md) — placeholder.
 - Need build / test commands? Read [build.md](build.md).
