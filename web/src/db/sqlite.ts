@@ -240,6 +240,22 @@ export class LocalDb {
     return out;
   }
 
+  listDistinctTags(): string[] {
+    if (!this.db) throw new Error('db not open');
+    const stmt = this.db.prepare(
+      `SELECT DISTINCT j.value AS tag
+       FROM (SELECT tags FROM entries WHERE deleted_at IS NULL AND json_valid(tags)) e, json_each(e.tags) j
+       WHERE j.type = 'text' AND j.value <> ''`
+    );
+    const out: string[] = [];
+    while (stmt.step()) {
+      const tag = stmt.getAsObject().tag;
+      if (typeof tag === 'string' && tag !== '') out.push(tag);
+    }
+    stmt.free();
+    return out;
+  }
+
   async upsertEntry(input: {
     id: string;
     title: string;

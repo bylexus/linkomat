@@ -53,6 +53,7 @@ function exposeDev(): void {
       opts?: { cursor?: { updated_at: string; id: string } | null }
     ) => db.searchEntries(q, opts),
     getEntry: (id: string) => db.getEntry(id),
+    listDistinctTags: () => db.listDistinctTags(),
     upsertEntry: (input: {
       id: string;
       title: string;

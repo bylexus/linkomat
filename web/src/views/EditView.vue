@@ -9,6 +9,7 @@ import { useSyncState } from '../state/sync';
 import { syncNow } from '../sync/engine';
 import ShareIcon from '../components/icons/ShareIcon.vue';
 import ShareDialog from '../components/ShareDialog.vue';
+import TagInput from '../components/TagInput.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -25,8 +26,16 @@ const form = reactive({
   note: '',
   tags: [] as string[],
 });
-const tagInput = ref('');
 const error = ref<string | null>(null);
+
+function tagSuggestions(): string[] {
+  if (!db || state.value.kind !== 'ready') return [];
+  try {
+    return db.listDistinctTags();
+  } catch {
+    return [];
+  }
+}
 
 function reloadLoaded(): void {
   if (!db || state.value.kind !== 'ready') return;
@@ -101,41 +110,6 @@ async function onUrlBlur(): Promise<void> {
     form.url = normalized;
   }
   await saveField();
-}
-
-const TAG_SEPARATOR = /[,\s]+/;
-
-function commitTags(parts: string[]): void {
-  const next = [...form.tags];
-  for (const part of parts) {
-    const v = part.trim();
-    if (v && !next.includes(v)) next.push(v);
-  }
-  if (next.length === form.tags.length) return;
-  form.tags = next;
-  void saveField();
-}
-
-function addTag(): void {
-  const raw = tagInput.value;
-  tagInput.value = '';
-  commitTags(raw.split(TAG_SEPARATOR));
-}
-
-function onTagInput(event: Event): void {
-  const el = event.target as HTMLInputElement;
-  const parts = el.value.split(TAG_SEPARATOR);
-  const rest = parts.pop() ?? '';
-  if (parts.length > 0) {
-    el.value = rest;
-    commitTags(parts);
-  }
-  tagInput.value = rest;
-}
-
-function removeTag(tag: string): void {
-  form.tags = form.tags.filter((t) => t !== tag);
-  void saveField();
 }
 
 async function onDelete(): Promise<void> {
@@ -298,38 +272,14 @@ const entryDotClass = computed(() => {
         />
       </label>
 
-      <label class="field">
+      <div class="field">
         <span class="field-label">Tags</span>
-        <div class="tags" data-test="edit-tags">
-          <span v-for="tag in form.tags" :key="tag" class="tag-chip">
-            {{ tag }}
-            <button
-              type="button"
-              class="tag-remove"
-              :aria-label="`Remove tag ${tag}`"
-              :data-test="`edit-tag-remove-${tag}`"
-              @click="removeTag(tag)"
-            >
-              ×
-            </button>
-          </span>
-          <input
-            :value="tagInput"
-            type="text"
-            class="tag-input"
-            placeholder="Add tag, press space or comma"
-            autocomplete="off"
-            autocapitalize="off"
-            autocorrect="off"
-            spellcheck="false"
-            enterkeyhint="done"
-            data-test="edit-tag-input"
-            @input="onTagInput"
-            @keydown.enter.prevent="addTag"
-            @blur="addTag"
-          />
-        </div>
-      </label>
+        <TagInput
+          v-model="form.tags"
+          :suggestion-source="tagSuggestions"
+          @change="saveField"
+        />
+      </div>
 
       <label class="field">
         <span class="field-label">Note</span>
@@ -553,53 +503,6 @@ const entryDotClass = computed(() => {
 .field textarea {
   resize: vertical;
   min-height: 8rem;
-}
-
-.tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.375rem;
-  align-items: center;
-  border: 1px solid #d1d5db;
-  border-radius: 0.375rem;
-  padding: 0.5rem;
-  min-height: 2.5rem;
-}
-
-.tags:focus-within {
-  outline: 2px solid #2563eb;
-  outline-offset: -1px;
-}
-
-.tag-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  background: #f3f4f6;
-  color: #374151;
-  padding: 0.125rem 0.5rem;
-  border-radius: 9999px;
-  font-size: 0.875rem;
-}
-
-.tag-remove {
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 0;
-  font-size: 1rem;
-  line-height: 1;
-  color: #6b7280;
-}
-
-.tag-input {
-  flex: 1;
-  min-width: 8rem;
-  border: none;
-  outline: none;
-  padding: 0.125rem 0.25rem;
-  font-size: 0.875rem;
-  background: transparent;
 }
 
 .banner {

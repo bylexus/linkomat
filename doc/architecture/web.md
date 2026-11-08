@@ -34,6 +34,7 @@ web/src/
 ├── components/
 │   ├── AppFooter.vue      # copyright + alexi.ch link + /about link; rendered below RouterView on every route
 │   ├── ShareDialog.vue    # native <dialog>: pick one accepted friend, send the entry; exposes open(entry)
+│   ├── TagInput.vue       # tag chips + input + suggestion dropdown; v-model string[], emits change; used by EditView
 │   └── icons/
 │       ├── LogoutIcon.vue   # inline-SVG logout glyph used by the icon-only logout button on HomeView
 │       ├── FriendsIcon.vue  # inline-SVG people glyph for the friends button on HomeView
@@ -57,7 +58,7 @@ web/src/
 └── views/
     ├── LoginView.vue      # username + password form
     ├── HomeView.vue       # search bar, virtualized list (share button per row), FAB, sync chip row, friend request panel, Received section
-    ├── EditView.vue       # title / url / tags / note, save-on-blur, share, delete, meta footer
+    ├── EditView.vue       # title / url / tags (TagInput, with suggestions) / note, save-on-blur, share, delete, meta footer
     ├── FriendsView.vue    # friends list, request / accept / decline / remove (online-only)
     └── AboutView.vue      # static app description; reachable while logged out
 ```
@@ -130,6 +131,10 @@ web/src/
   FTS3 `MATCH` (`toFtsQuery` strips stray `"` and `'`, preserves
   uppercase operators `AND`/`OR`/`NOT`/`NEAR`, appends `*` to
   non-operator tokens). Empty query → `listEntries()`.
+- `listDistinctTags()` — each tag once, from the `entries.tags` JSON
+  via SQLite `json_each` (built into `sql.js@1.14.2`); skips
+  soft-deleted rows and invalid JSON (`json_valid`). Source for the
+  `TagInput` suggestions; also on `window.__linkomatDb` in dev.
 
 - `meta` — `entries.meta TEXT NOT NULL DEFAULT '{}'`, the server-owned
   JSON log (`shares`, `imported`; see `api.md` → "Share /
@@ -285,6 +290,13 @@ from pulled / returned entries.
 - "Why is `useDb()` returning `pending`?" — `LocalDb.open()` is
   async; `App.vue` shows a splash until it resolves. The auth guard
   also waits for the auth state to settle.
+- "How do tag suggestions work?" — `components/TagInput.vue` loads
+  `LocalDb.listDistinctTags()` once on input focus (via the
+  `suggestionSource` prop from EditView), then filters in JS:
+  case-insensitive (`toLocaleLowerCase`), hides tags already on the
+  entry, prefix matches first, then A–Z, max 8. Space / comma /
+  Enter / blur create a tag; the input uses `@input`, because mobile
+  keyboards send key `Unidentified`.
 - "Where does the status dot in the row come from?" — HomeView reads
   `useSyncState()` and computes per-row status from the entry's
   `local_dirty_at` vs. the global `syncing` flag.

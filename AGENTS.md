@@ -42,6 +42,8 @@ Quick map for a fresh reading LLM agent. **Read this file first.**
     server-owned: the client only reads it, `PUT` ignores it.
   - FTS3 (not FTS5) is what's available in `sql.js@1.14.2`'s
     WASM. Triggers strip JSON syntax from `tags` before indexing.
+  - SQLite JSON functions (`json_each`, `json_valid`) are available
+    in `sql.js@1.14.2` (`LocalDb.listDistinctTags()` uses them).
 - **Server specific**:
   - Per-user DB cache (`api/userdb.go`) has no eviction in v1;
     don't add one without a reason.
@@ -68,6 +70,7 @@ Quick map for a fresh reading LLM agent. **Read this file first.**
 | PWA / service worker config | `web/vite.config.ts`                                                          |
 | Friendships (API / web)     | `api/handlers_friendships.go`, `api/models.go`, `shared/friendship.go`, `web/src/api/friendships.ts`, `web/src/views/FriendsView.vue`, `web/src/views/HomeView.vue` |
 | Sharing (API / web)         | `api/handlers_share.go`, `api/userdb.go` (`PendingEntry`, `Entry.Meta`), `shared/pending_entry.go`, `shared/entry.go`, `web/src/api/entries.ts` (`shareEntry`), `web/src/api/pendingEntries.ts`, `web/src/components/ShareDialog.vue`, `web/src/components/icons/ShareIcon.vue`, `web/src/views/HomeView.vue`, `web/src/views/EditView.vue` |
+| Tag input / suggestions     | `web/src/components/TagInput.vue`, `web/src/db/sqlite.ts` (`listDistinctTags`), `web/src/views/EditView.vue` |
 | Cookie / DTO constant       | `shared/cookies.go`, `shared/auth.go`, `shared/entry.go`, `shared/entries.go` |
 | Build targets               | `Makefile`                                                                    |
 | Server binary entry point   | `cmd/linkomat-server/main.go` → `api.NewRootCmd()` in `api/root.go`           |
