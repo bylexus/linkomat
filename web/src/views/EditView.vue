@@ -103,14 +103,34 @@ async function onUrlBlur(): Promise<void> {
   await saveField();
 }
 
-function addTag(): void {
-  const v = tagInput.value.trim().replace(/,$/, '').trim();
-  if (!v) return;
-  if (!form.tags.includes(v)) {
-    form.tags = [...form.tags, v];
+const TAG_SEPARATOR = /[,\s]+/;
+
+function commitTags(parts: string[]): void {
+  const next = [...form.tags];
+  for (const part of parts) {
+    const v = part.trim();
+    if (v && !next.includes(v)) next.push(v);
   }
-  tagInput.value = '';
+  if (next.length === form.tags.length) return;
+  form.tags = next;
   void saveField();
+}
+
+function addTag(): void {
+  const raw = tagInput.value;
+  tagInput.value = '';
+  commitTags(raw.split(TAG_SEPARATOR));
+}
+
+function onTagInput(event: Event): void {
+  const el = event.target as HTMLInputElement;
+  const parts = el.value.split(TAG_SEPARATOR);
+  const rest = parts.pop() ?? '';
+  if (parts.length > 0) {
+    el.value = rest;
+    commitTags(parts);
+  }
+  tagInput.value = rest;
 }
 
 function removeTag(tag: string): void {
@@ -294,15 +314,18 @@ const entryDotClass = computed(() => {
             </button>
           </span>
           <input
-            v-model="tagInput"
+            :value="tagInput"
             type="text"
             class="tag-input"
-            placeholder="Add tag, press Enter"
+            placeholder="Add tag, press space or comma"
             autocomplete="off"
+            autocapitalize="off"
+            autocorrect="off"
             spellcheck="false"
+            enterkeyhint="done"
             data-test="edit-tag-input"
+            @input="onTagInput"
             @keydown.enter.prevent="addTag"
-            @keydown.,.prevent="addTag"
             @blur="addTag"
           />
         </div>
